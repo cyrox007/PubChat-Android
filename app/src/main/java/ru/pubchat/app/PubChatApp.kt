@@ -76,6 +76,10 @@ private fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var submitting by remember { mutableStateOf(false) }
 
+    LaunchedEffect(error) {
+        if (!error.isNullOrBlank()) submitting = false
+    }
+
     Scaffold { padding ->
         Column(
             modifier = Modifier
