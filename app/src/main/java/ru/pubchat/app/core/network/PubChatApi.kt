@@ -3,7 +3,6 @@ package ru.pubchat.app.core.network
 import org.json.JSONArray
 import org.json.JSONObject
 import ru.pubchat.app.BuildConfig
-import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -19,6 +18,11 @@ class PubChatApi(
         val handle: String,
     )
 
+    data class RefreshResult(
+        val accessToken: String,
+        val refreshCookie: String?,
+    )
+
     data class SpaceSummary(
         val uid: String,
         val name: String,
@@ -26,7 +30,7 @@ class PubChatApi(
         val purpose: String?,
     )
 
-    data class ApiFailure(val code: Int, val message: String) : Exception(message)
+    data class ApiFailure(val code: Int, override val message: String) : Exception(message)
 
     fun login(identifier: String, password: String): LoginResult {
         val body = JSONObject()
@@ -69,9 +73,12 @@ class PubChatApi(
         }
     }
 
-    fun refresh(): String {
+    fun refresh(): RefreshResult {
         val response = request("POST", "/identity/v2/refresh", includeAccessToken = false)
-        return JSONObject(response.body).getString("access_token")
+        return RefreshResult(
+            accessToken = JSONObject(response.body).getString("access_token"),
+            refreshCookie = response.refreshCookie,
+        )
     }
 
     fun logout() {
@@ -112,7 +119,7 @@ class PubChatApi(
         return try {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader(Charsets.UTF_8)?.use(BufferedReader::readText).orEmpty()
+            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             if (code !in 200..299) {
                 val detail = runCatching {
                     val root = JSONObject(text)
@@ -124,7 +131,10 @@ class PubChatApi(
                 }.getOrDefault("")
                 throw ApiFailure(code, detail.ifBlank { "HTTP $code" })
             }
-            HttpResult(text, extractRefreshCookie(connection.headerFields["Set-Cookie"]))
+            val setCookie = connection.headerFields.entries
+                .firstOrNull { (name, _) -> name?.equals("Set-Cookie", ignoreCase = true) == true }
+                ?.value
+            HttpResult(text, extractRefreshCookie(setCookie))
         } finally {
             connection.disconnect()
         }
