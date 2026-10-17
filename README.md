@@ -19,17 +19,21 @@ Native Android client for PubChat.
 - secure multi-device session foundation
 - Spaces list and Space detail/open-join flow
 - native Space WebSocket through `/realtime/v2/tickets`
-- initial message history from realtime bootstrap
-- live room messages and native send composer
+- initial Space message history, live room messages and native send composer
 - People discovery through `/social/v1/discover`
-- public Persona profile opening
-- own Persona summary
+- public Persona profile opening and own Persona summary
+- Messenger dialog list with unread counters
+- open DM directly from a Persona profile
+- native Messenger realtime ticket/WebSocket authentication
+- DM history, live messages, read receipts and presence subscription
+- DM send composer
+- reply, edit, delete, reaction and forward message actions
 
 ## Site parity target
 
 Android is considered ready only when normal user flows available on the web client are available natively as well. Remaining parity blocks include:
 
-1. Messenger: DM history, realtime, reply/edit/delete/reactions/forward, media.
+1. Messenger media/attachments and E2EE-aware delivery UX.
 2. Notifications + FCM + deep links.
 3. Native voice/video WebRTC calls.
 4. Full Space sections: Community, Life, Support and moderation.
