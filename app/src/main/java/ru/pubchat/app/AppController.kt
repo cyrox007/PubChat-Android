@@ -53,7 +53,7 @@ class AppController(context: Context) {
             runCatching {
                 val login = api.login(identifier, password)
                 session.saveSession(login.accessToken, login.refreshCookie)
-                Triple(login, api.spaces(), Unit)
+                login to api.spaces()
             }.onSuccess { (login, spaces) ->
                 main.post {
                     onState(
@@ -99,7 +99,11 @@ class AppController(context: Context) {
             api.spaces()
         } catch (error: PubChatApi.ApiFailure) {
             if (error.code != 401 || session.refreshCookie().isNullOrBlank()) throw error
-            session.updateAccessToken(api.refresh())
+            val refreshed = api.refresh()
+            session.saveSession(
+                refreshed.accessToken,
+                refreshed.refreshCookie ?: session.refreshCookie(),
+            )
             api.spaces()
         }
     }
