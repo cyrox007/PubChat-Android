@@ -56,6 +56,20 @@ class PubChatApi(
         val senderName: String?,
         val createdAt: String?,
         val contentType: String,
+        val receiverUid: String? = null,
+        val isRead: Boolean = false,
+        val reactions: String? = null,
+        val replyToUid: String? = null,
+    )
+
+    data class DialogSummary(
+        val partnerUid: String,
+        val displayName: String,
+        val handle: String?,
+        val avatar: String?,
+        val lastMessage: String?,
+        val lastMessageTime: String?,
+        val unreadCount: Int,
     )
 
     data class RealtimeTicket(
@@ -118,45 +132,66 @@ class PubChatApi(
                 val item = items.optJSONObject(index) ?: continue
                 val accountUid = item.optString("account_uid")
                 if (accountUid.isBlank()) continue
-                add(
-                    PersonSummary(
-                        accountUid = accountUid,
-                        displayName = item.optString("display_name").ifBlank {
-                            item.optString("handle").ifBlank { "Участник PubChat" }
-                        },
-                        handle = item.optNullableString("handle"),
-                        bio = item.optNullableString("bio"),
-                        city = item.optNullableString("city"),
-                        country = item.optNullableString("country"),
-                        avatar = item.optNullableString("avatar"),
-                        socialIntent = item.optNullableString("social_intent"),
-                    )
-                )
+                add(parsePerson(item, accountUid))
             }
         }
     }
 
     fun publicProfile(accountUid: String): PersonSummary {
         val item = JSONObject(request("GET", "/identity/v2/profiles/$accountUid").body).getJSONObject("profile")
-        return PersonSummary(
-            accountUid = item.optString("uid").ifBlank { accountUid },
-            displayName = item.optString("display_name").ifBlank { item.optString("handle").ifBlank { "Участник PubChat" } },
-            handle = item.optNullableString("handle"),
-            bio = item.optNullableString("bio"),
-            city = item.optNullableString("city"),
-            country = item.optNullableString("country"),
-            avatar = item.optNullableString("avatar"),
-            socialIntent = item.optNullableString("social_intent"),
-        )
+        return parsePerson(item, accountUid)
     }
 
-    fun realtimeTicket(spaceUid: String): RealtimeTicket {
-        val body = JSONObject().put("target", "room").put("room_uid", spaceUid)
-        val json = JSONObject(request("POST", "/realtime/v2/tickets", body = body).body)
-        return RealtimeTicket(
-            ticket = json.getString("ticket"),
-            websocketPath = json.getString("websocket_path"),
-            heartbeatSeconds = json.optInt("heartbeat_seconds", 25),
+    fun dialogs(): List<DialogSummary> {
+        val root = JSONObject(request("GET", "/messenger/dialogs").body)
+        val items = root.optJSONArray("dialogs") ?: JSONArray()
+        return buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val partnerUid = item.optString("partner_id")
+                if (partnerUid.isBlank()) continue
+                val partner = item.optJSONObject("partner")
+                val username = partner?.optNullableString("username")
+                add(
+                    DialogSummary(
+                        partnerUid = partnerUid,
+                        displayName = partner?.optNullableString("display_name") ?: username ?: "Участник PubChat",
+                        handle = username,
+                        avatar = partner?.optNullableString("avatar"),
+                        lastMessage = item.optNullableString("last_message"),
+                        lastMessageTime = item.optNullableString("last_message_time"),
+                        unreadCount = item.optInt("unread_count", 0),
+                    )
+                )
+            }
+        }
+    }
+
+    fun realtimeTicket(spaceUid: String): RealtimeTicket = realtimeTicket("room", spaceUid)
+
+    fun messengerRealtimeTicket(): RealtimeTicket = realtimeTicket("messenger", null)
+
+    fun editPrivateMessage(messageUid: String, content: String) {
+        request("PATCH", "/messages/v2/messenger/$messageUid", JSONObject().put("content", content.trim()))
+    }
+
+    fun deletePrivateMessage(messageUid: String) {
+        request("DELETE", "/messages/v2/messenger/$messageUid")
+    }
+
+    fun replyPrivateMessage(messageUid: String, content: String) {
+        request("POST", "/messages/v2/messenger/$messageUid/reply", JSONObject().put("content", content.trim()))
+    }
+
+    fun reactPrivateMessage(messageUid: String, emoji: String) {
+        request("POST", "/messages/v2/messenger/$messageUid/reactions", JSONObject().put("emoji", emoji))
+    }
+
+    fun forwardPrivateMessage(messageUid: String, targetPartnerUid: String) {
+        request(
+            "POST",
+            "/messages/v2/messenger/$messageUid/forward",
+            JSONObject().put("target_surface", "messenger").put("target_uid", targetPartnerUid),
         )
     }
 
@@ -167,6 +202,17 @@ class PubChatApi(
 
     fun logout() {
         request("POST", "/identity/v2/logout")
+    }
+
+    private fun realtimeTicket(target: String, spaceUid: String?): RealtimeTicket {
+        val body = JSONObject().put("target", target)
+        spaceUid?.let { body.put("room_uid", it) }
+        val json = JSONObject(request("POST", "/realtime/v2/tickets", body = body).body)
+        return RealtimeTicket(
+            ticket = json.getString("ticket"),
+            websocketPath = json.getString("websocket_path"),
+            heartbeatSeconds = json.optInt("heartbeat_seconds", 25),
+        )
     }
 
     private fun parseIdentity(root: JSONObject, cookie: String?): Identity {
@@ -189,6 +235,17 @@ class PubChatApi(
             socialIntent = persona?.optNullableString("social_intent") ?: user?.optNullableString("social_intent"),
         )
     }
+
+    private fun parsePerson(item: JSONObject, fallbackUid: String): PersonSummary = PersonSummary(
+        accountUid = item.optString("account_uid").ifBlank { item.optString("uid").ifBlank { fallbackUid } },
+        displayName = item.optString("display_name").ifBlank { item.optString("handle").ifBlank { "Участник PubChat" } },
+        handle = item.optNullableString("handle"),
+        bio = item.optNullableString("bio"),
+        city = item.optNullableString("city"),
+        country = item.optNullableString("country"),
+        avatar = item.optNullableString("avatar"),
+        socialIntent = item.optNullableString("social_intent"),
+    )
 
     private fun parseSpaces(items: JSONArray): List<SpaceSummary> = buildList {
         for (index in 0 until items.length()) {
