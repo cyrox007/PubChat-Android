@@ -11,88 +11,210 @@ class PubChatApi(
     private val accessToken: () -> String?,
     private val refreshCookie: () -> String?,
 ) {
-    data class LoginResult(
-        val accessToken: String,
+    data class Identity(
+        val accountUid: String,
+        val accessToken: String?,
         val refreshCookie: String?,
         val displayName: String,
         val handle: String,
+        val bio: String?,
+        val avatar: String?,
+        val socialIntent: String?,
     )
 
-    data class RefreshResult(
-        val accessToken: String,
-        val refreshCookie: String?,
-    )
+    data class RefreshResult(val accessToken: String, val refreshCookie: String?)
 
     data class SpaceSummary(
         val uid: String,
         val name: String,
         val description: String?,
         val purpose: String?,
+        val joinPolicy: String?,
+        val membershipStatus: String?,
+        val membershipRole: String?,
+        val ownerUid: String?,
+    ) {
+        val isActiveMember: Boolean
+            get() = membershipStatus == "active" || membershipRole == "owner"
+    }
+
+    data class PersonSummary(
+        val accountUid: String,
+        val displayName: String,
+        val handle: String?,
+        val bio: String?,
+        val city: String?,
+        val country: String?,
+        val avatar: String?,
+        val socialIntent: String?,
+    )
+
+    data class ChatMessage(
+        val uid: String,
+        val content: String,
+        val senderUid: String?,
+        val senderName: String?,
+        val createdAt: String?,
+        val contentType: String,
+    )
+
+    data class RealtimeTicket(
+        val ticket: String,
+        val websocketPath: String,
+        val heartbeatSeconds: Int,
     )
 
     data class ApiFailure(val code: Int, override val message: String) : Exception(message)
 
-    fun login(identifier: String, password: String): LoginResult {
-        val body = JSONObject()
-            .put("identifier", identifier.trim())
-            .put("password", password)
+    fun login(identifier: String, password: String): Identity {
+        val body = JSONObject().put("identifier", identifier.trim()).put("password", password)
         val response = request("POST", "/identity/v2/login", body = body)
-        val json = JSONObject(response.body)
-        val user = json.optJSONObject("user")
-        val persona = json.optJSONObject("persona")
-        return LoginResult(
-            accessToken = json.getString("access_token"),
-            refreshCookie = response.refreshCookie,
-            displayName = user?.optString("display_name")?.takeIf { it.isNotBlank() }
-                ?: persona?.optString("display_name")?.takeIf { it.isNotBlank() }
-                ?: identifier.trim(),
-            handle = user?.optString("username")?.takeIf { it.isNotBlank() }
-                ?: persona?.optString("handle")?.takeIf { it.isNotBlank() }
-                ?: identifier.trim(),
-        )
+        return parseIdentity(JSONObject(response.body), response.refreshCookie)
     }
 
-    fun spaces(): List<SpaceSummary> {
-        val response = request("GET", "/spaces/v1?limit=50")
-        val items = JSONObject(response.body).optJSONArray("spaces") ?: JSONArray()
+    fun register(
+        handle: String,
+        displayName: String,
+        email: String?,
+        password: String,
+        socialIntent: String,
+    ): Identity {
+        val body = JSONObject()
+            .put("handle", handle.trim())
+            .put("display_name", displayName.trim().ifBlank { handle.trim() })
+            .put("password", password)
+            .put("social_intent", socialIntent)
+        email?.trim()?.takeIf { it.isNotBlank() }?.let { body.put("email", it) }
+        val response = request("POST", "/identity/v2/register", body = body)
+        return parseIdentity(JSONObject(response.body), response.refreshCookie)
+    }
+
+    fun me(): Identity {
+        val response = request("GET", "/identity/v2/me")
+        return parseIdentity(JSONObject(response.body), refreshCookie())
+    }
+
+    fun spaces(): List<SpaceSummary> = parseSpaces(
+        JSONObject(request("GET", "/spaces/v1?limit=50").body).optJSONArray("spaces") ?: JSONArray()
+    )
+
+    fun space(uid: String): SpaceSummary {
+        val json = JSONObject(request("GET", "/spaces/v1/$uid").body).getJSONObject("space")
+        return parseSpace(json)
+    }
+
+    fun joinSpace(uid: String): SpaceSummary {
+        val json = JSONObject(request("POST", "/spaces/v1/$uid/join").body).getJSONObject("space")
+        return parseSpace(json)
+    }
+
+    fun people(query: String = ""): List<PersonSummary> {
+        val encoded = java.net.URLEncoder.encode(query.trim(), Charsets.UTF_8.name())
+        val suffix = if (encoded.isBlank()) "" else "&q=$encoded"
+        val root = JSONObject(request("GET", "/social/v1/discover?limit=50$suffix").body)
+        val items = root.optJSONArray("people") ?: JSONArray()
         return buildList {
             for (index in 0 until items.length()) {
-                val space = items.optJSONObject(index) ?: continue
-                val uid = space.optString("uid")
-                val name = space.optString("name")
-                if (uid.isBlank() || name.isBlank()) continue
+                val item = items.optJSONObject(index) ?: continue
+                val accountUid = item.optString("account_uid")
+                if (accountUid.isBlank()) continue
                 add(
-                    SpaceSummary(
-                        uid = uid,
-                        name = name,
-                        description = space.optString("description").takeIf { it.isNotBlank() && it != "null" },
-                        purpose = space.optString("purpose").takeIf { it.isNotBlank() && it != "null" },
+                    PersonSummary(
+                        accountUid = accountUid,
+                        displayName = item.optString("display_name").ifBlank {
+                            item.optString("handle").ifBlank { "Участник PubChat" }
+                        },
+                        handle = item.optNullableString("handle"),
+                        bio = item.optNullableString("bio"),
+                        city = item.optNullableString("city"),
+                        country = item.optNullableString("country"),
+                        avatar = item.optNullableString("avatar"),
+                        socialIntent = item.optNullableString("social_intent"),
                     )
                 )
             }
         }
     }
 
+    fun publicProfile(accountUid: String): PersonSummary {
+        val item = JSONObject(request("GET", "/identity/v2/profiles/$accountUid").body).getJSONObject("profile")
+        return PersonSummary(
+            accountUid = item.optString("uid").ifBlank { accountUid },
+            displayName = item.optString("display_name").ifBlank { item.optString("handle").ifBlank { "Участник PubChat" } },
+            handle = item.optNullableString("handle"),
+            bio = item.optNullableString("bio"),
+            city = item.optNullableString("city"),
+            country = item.optNullableString("country"),
+            avatar = item.optNullableString("avatar"),
+            socialIntent = item.optNullableString("social_intent"),
+        )
+    }
+
+    fun realtimeTicket(spaceUid: String): RealtimeTicket {
+        val body = JSONObject().put("target", "room").put("room_uid", spaceUid)
+        val json = JSONObject(request("POST", "/realtime/v2/tickets", body = body).body)
+        return RealtimeTicket(
+            ticket = json.getString("ticket"),
+            websocketPath = json.getString("websocket_path"),
+            heartbeatSeconds = json.optInt("heartbeat_seconds", 25),
+        )
+    }
+
     fun refresh(): RefreshResult {
         val response = request("POST", "/identity/v2/refresh", includeAccessToken = false)
-        return RefreshResult(
-            accessToken = JSONObject(response.body).getString("access_token"),
-            refreshCookie = response.refreshCookie,
-        )
+        return RefreshResult(JSONObject(response.body).getString("access_token"), response.refreshCookie)
     }
 
     fun logout() {
         request("POST", "/identity/v2/logout")
     }
 
+    private fun parseIdentity(root: JSONObject, cookie: String?): Identity {
+        val account = root.optJSONObject("account")
+        val user = root.optJSONObject("user")
+        val persona = root.optJSONObject("persona")
+        return Identity(
+            accountUid = account?.optString("uid")?.takeIf { it.isNotBlank() }
+                ?: user?.optString("uid")?.takeIf { it.isNotBlank() }.orEmpty(),
+            accessToken = root.optNullableString("access_token"),
+            refreshCookie = cookie,
+            displayName = user?.optString("display_name")?.takeIf { it.isNotBlank() }
+                ?: persona?.optString("display_name")?.takeIf { it.isNotBlank() }
+                ?: "PubChat",
+            handle = user?.optString("username")?.takeIf { it.isNotBlank() }
+                ?: persona?.optString("handle")?.takeIf { it.isNotBlank() }
+                ?: "",
+            bio = persona?.optNullableString("bio") ?: user?.optNullableString("bio"),
+            avatar = persona?.optNullableString("avatar") ?: user?.optNullableString("avatar"),
+            socialIntent = persona?.optNullableString("social_intent") ?: user?.optNullableString("social_intent"),
+        )
+    }
+
+    private fun parseSpaces(items: JSONArray): List<SpaceSummary> = buildList {
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: continue
+            if (item.optString("uid").isBlank()) continue
+            add(parseSpace(item))
+        }
+    }
+
+    private fun parseSpace(space: JSONObject): SpaceSummary {
+        val membership = space.optJSONObject("viewer_membership")
+        return SpaceSummary(
+            uid = space.optString("uid"),
+            name = space.optString("name").ifBlank { "Пространство" },
+            description = space.optNullableString("description"),
+            purpose = space.optNullableString("purpose"),
+            joinPolicy = space.optNullableString("join_policy"),
+            membershipStatus = membership?.optNullableString("status"),
+            membershipRole = membership?.optNullableString("role"),
+            ownerUid = space.optNullableString("owner_uid"),
+        )
+    }
+
     private data class HttpResult(val body: String, val refreshCookie: String?)
 
-    private fun request(
-        method: String,
-        path: String,
-        body: JSONObject? = null,
-        includeAccessToken: Boolean = true,
-    ): HttpResult {
+    private fun request(method: String, path: String, body: JSONObject? = null, includeAccessToken: Boolean = true): HttpResult {
         val base = BuildConfig.API_BASE_URL.trimEnd('/')
         val connection = (URL("$base$path").openConnection() as HttpURLConnection).apply {
             requestMethod = method
@@ -102,28 +224,20 @@ class PubChatApi(
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("X-PubChat-Device-ID", deviceUid())
             setRequestProperty("User-Agent", "PubChat-Android/${BuildConfig.VERSION_NAME}")
-            if (includeAccessToken) {
-                accessToken()?.takeIf { it.isNotBlank() }?.let {
-                    setRequestProperty("Authorization", "Bearer $it")
-                }
-            }
-            refreshCookie()?.takeIf { it.isNotBlank() }?.let {
-                setRequestProperty("Cookie", it)
-            }
+            if (includeAccessToken) accessToken()?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Authorization", "Bearer $it") }
+            refreshCookie()?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Cookie", it) }
             if (body != null) {
                 doOutput = true
-                outputStream.bufferedWriter(Charsets.UTF_8).use { writer -> writer.write(body.toString()) }
+                outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(body.toString()) }
             }
         }
-
         return try {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             if (code !in 200..299) {
                 val detail = runCatching {
-                    val root = JSONObject(text)
-                    val raw = root.opt("detail")
+                    val raw = JSONObject(text).opt("detail")
                     when (raw) {
                         is JSONObject -> raw.optString("error_type").ifBlank { raw.toString() }
                         else -> raw?.toString().orEmpty()
@@ -131,10 +245,8 @@ class PubChatApi(
                 }.getOrDefault("")
                 throw ApiFailure(code, detail.ifBlank { "HTTP $code" })
             }
-            val setCookie = connection.headerFields.entries
-                .firstOrNull { (name, _) -> name?.equals("Set-Cookie", ignoreCase = true) == true }
-                ?.value
-            HttpResult(text, extractRefreshCookie(setCookie))
+            val cookies = connection.headerFields.entries.firstOrNull { (name, _) -> name?.equals("Set-Cookie", true) == true }?.value
+            HttpResult(text, extractRefreshCookie(cookies))
         } finally {
             connection.disconnect()
         }
@@ -142,8 +254,9 @@ class PubChatApi(
 
     private fun extractRefreshCookie(headers: List<String>?): String? = headers
         ?.asSequence()
-        ?.mapNotNull { header ->
-            header.split(';').firstOrNull()?.trim()?.takeIf { it.startsWith("refresh_token=") }
-        }
+        ?.mapNotNull { it.split(';').firstOrNull()?.trim()?.takeIf { cookie -> cookie.startsWith("refresh_token=") } }
         ?.firstOrNull()
+
+    private fun JSONObject.optNullableString(key: String): String? = optString(key)
+        .takeIf { it.isNotBlank() && it != "null" }
 }
