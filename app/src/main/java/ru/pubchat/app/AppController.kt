@@ -3,7 +3,9 @@ package ru.pubchat.app
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import org.json.JSONObject
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.realtime.SpaceRealtimeClient
 import ru.pubchat.app.core.session.SessionStore
 import java.util.concurrent.Executors
 
@@ -11,8 +13,12 @@ sealed interface AppState {
     data object Booting : AppState
     data class SignedOut(val error: String? = null) : AppState
     data class SignedIn(
+        val accountUid: String,
         val displayName: String,
         val handle: String,
+        val bio: String?,
+        val avatar: String?,
+        val socialIntent: String?,
         val spaces: List<PubChatApi.SpaceSummary>,
         val loading: Boolean = false,
         val error: String? = null,
@@ -28,6 +34,7 @@ class AppController(context: Context) {
     )
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private var realtime: SpaceRealtimeClient? = null
 
     fun bootstrap(onState: (AppState) -> Unit) {
         if (session.accessToken().isNullOrBlank()) {
@@ -35,12 +42,15 @@ class AppController(context: Context) {
             return
         }
         executor.execute {
-            runCatching { loadSpacesWithRefresh() }
-                .onSuccess { spaces -> main.post { onState(AppState.SignedIn("PubChat", "", spaces)) } }
-                .onFailure {
-                    session.clearSession()
-                    main.post { onState(AppState.SignedOut()) }
-                }
+            runCatching {
+                val identity = authenticated { api.me() }
+                identity to authenticated { api.spaces() }
+            }.onSuccess { (identity, spaces) ->
+                main.post { onState(identity.toSignedIn(spaces)) }
+            }.onFailure {
+                session.clearSession()
+                main.post { onState(AppState.SignedOut()) }
+            }
         }
     }
 
@@ -51,38 +61,130 @@ class AppController(context: Context) {
         }
         executor.execute {
             runCatching {
-                val login = api.login(identifier, password)
-                session.saveSession(login.accessToken, login.refreshCookie)
-                login to api.spaces()
-            }.onSuccess { (login, spaces) ->
-                main.post {
-                    onState(
-                        AppState.SignedIn(
-                            displayName = login.displayName,
-                            handle = login.handle,
-                            spaces = spaces,
-                        )
-                    )
+                val identity = api.login(identifier, password)
+                saveIdentitySession(identity)
+                identity to api.spaces()
+            }.onSuccess { (identity, spaces) -> main.post { onState(identity.toSignedIn(spaces)) } }
+                .onFailure { error ->
+                    session.clearSession()
+                    main.post { onState(AppState.SignedOut(humanMessage(error))) }
                 }
-            }.onFailure { error ->
-                session.clearSession()
-                main.post { onState(AppState.SignedOut(humanMessage(error))) }
-            }
+        }
+    }
+
+    fun register(
+        handle: String,
+        displayName: String,
+        email: String,
+        password: String,
+        socialIntent: String,
+        onState: (AppState) -> Unit,
+    ) {
+        if (handle.length < 3 || password.length < 8) {
+            onState(AppState.SignedOut("@handle — от 3 символов, пароль — от 8"))
+            return
+        }
+        executor.execute {
+            runCatching {
+                val identity = api.register(handle, displayName, email.ifBlank { null }, password, socialIntent)
+                saveIdentitySession(identity)
+                identity to api.spaces()
+            }.onSuccess { (identity, spaces) -> main.post { onState(identity.toSignedIn(spaces)) } }
+                .onFailure { error ->
+                    session.clearSession()
+                    main.post { onState(AppState.SignedOut(humanMessage(error))) }
+                }
         }
     }
 
     fun reload(current: AppState.SignedIn, onState: (AppState) -> Unit) {
         onState(current.copy(loading = true, error = null))
         executor.execute {
-            runCatching { loadSpacesWithRefresh() }
+            runCatching { authenticated { api.spaces() } }
                 .onSuccess { spaces -> main.post { onState(current.copy(spaces = spaces, loading = false)) } }
-                .onFailure { error ->
-                    main.post { onState(current.copy(loading = false, error = humanMessage(error))) }
-                }
+                .onFailure { error -> main.post { onState(current.copy(loading = false, error = humanMessage(error))) } }
         }
     }
 
+    fun loadPeople(query: String, onResult: (List<PubChatApi.PersonSummary>, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.people(query) } }
+                .onSuccess { people -> main.post { onResult(people, null) } }
+                .onFailure { error -> main.post { onResult(emptyList(), humanMessage(error)) } }
+        }
+    }
+
+    fun loadProfile(accountUid: String, onResult: (PubChatApi.PersonSummary?, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.publicProfile(accountUid) } }
+                .onSuccess { profile -> main.post { onResult(profile, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
+    fun openSpace(
+        spaceUid: String,
+        onReady: (PubChatApi.SpaceSummary) -> Unit,
+        onInitialMessages: (List<PubChatApi.ChatMessage>) -> Unit,
+        onMessage: (PubChatApi.ChatMessage) -> Unit,
+        onConnection: (String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        realtime?.close()
+        executor.execute {
+            runCatching {
+                var space = authenticated { api.space(spaceUid) }
+                if (!space.isActiveMember && space.joinPolicy == "open") {
+                    space = authenticated { api.joinSpace(spaceUid) }
+                }
+                if (!space.isActiveMember) throw IllegalStateException("Сначала нужно вступить в пространство")
+                val ticket = authenticated { api.realtimeTicket(spaceUid) }
+                space to ticket
+            }.onSuccess { (space, ticket) ->
+                main.post {
+                    onReady(space)
+                    val client = SpaceRealtimeClient(
+                        onFrame = { frame ->
+                            main.post {
+                                when (frame.optString("type")) {
+                                    "initial_data" -> {
+                                        val items = frame.optJSONArray("messages")
+                                        val messages = buildList {
+                                            if (items != null) {
+                                                for (index in items.length() - 1 downTo 0) {
+                                                    items.optJSONObject(index)?.let(::parseMessage)?.let(::add)
+                                                }
+                                            }
+                                        }
+                                        onInitialMessages(messages)
+                                    }
+                                    "message" -> parseMessage(frame)?.let(onMessage)
+                                    "rate_limited" -> onError("Слишком много сообщений подряд")
+                                    "error" -> onError("Realtime действие не выполнено")
+                                }
+                            }
+                        },
+                        onState = { state -> main.post { onConnection(state) } },
+                    )
+                    realtime = client
+                    client.connect(ticket)
+                }
+            }.onFailure { error -> main.post { onError(humanMessage(error)) } }
+        }
+    }
+
+    fun sendSpaceMessage(content: String, accountUid: String, displayName: String): Boolean {
+        if (content.isBlank()) return false
+        return realtime?.sendMessage(content, accountUid, displayName) == true
+    }
+
+    fun closeSpace() {
+        realtime?.close()
+        realtime = null
+    }
+
     fun logout(onState: (AppState) -> Unit) {
+        closeSpace()
         executor.execute {
             runCatching { api.logout() }
             session.clearSession()
@@ -91,29 +193,61 @@ class AppController(context: Context) {
     }
 
     fun close() {
+        closeSpace()
         executor.shutdownNow()
     }
 
-    private fun loadSpacesWithRefresh(): List<PubChatApi.SpaceSummary> {
+    private fun saveIdentitySession(identity: PubChatApi.Identity) {
+        val token = identity.accessToken ?: throw IllegalStateException("Сервер не вернул access token")
+        session.saveSession(token, identity.refreshCookie)
+    }
+
+    private fun <T> authenticated(block: () -> T): T {
         return try {
-            api.spaces()
+            block()
         } catch (error: PubChatApi.ApiFailure) {
             if (error.code != 401 || session.refreshCookie().isNullOrBlank()) throw error
             val refreshed = api.refresh()
-            session.saveSession(
-                refreshed.accessToken,
-                refreshed.refreshCookie ?: session.refreshCookie(),
-            )
-            api.spaces()
+            session.saveSession(refreshed.accessToken, refreshed.refreshCookie ?: session.refreshCookie())
+            block()
         }
+    }
+
+    private fun PubChatApi.Identity.toSignedIn(spaces: List<PubChatApi.SpaceSummary>) = AppState.SignedIn(
+        accountUid = accountUid,
+        displayName = displayName,
+        handle = handle,
+        bio = bio,
+        avatar = avatar,
+        socialIntent = socialIntent,
+        spaces = spaces,
+    )
+
+    private fun parseMessage(json: JSONObject): PubChatApi.ChatMessage? {
+        val uid = json.optString("uid").ifBlank { json.optString("frontId") }
+        if (uid.isBlank()) return null
+        val sender = json.optJSONObject("sender")
+        return PubChatApi.ChatMessage(
+            uid = uid,
+            content = json.optString("content"),
+            senderUid = sender?.optString("uid")?.takeIf { it.isNotBlank() }
+                ?: json.optString("sender_uid").takeIf { it.isNotBlank() },
+            senderName = sender?.optString("name")?.takeIf { it.isNotBlank() }
+                ?: sender?.optString("display_name")?.takeIf { it.isNotBlank() },
+            createdAt = json.optString("created_at").takeIf { it.isNotBlank() },
+            contentType = json.optString("content_type").ifBlank { "text" },
+        )
     }
 
     private fun humanMessage(error: Throwable): String = when (error) {
         is PubChatApi.ApiFailure -> when (error.code) {
             401 -> "Неверные данные входа или сессия истекла"
             403 -> "Доступ ограничен"
+            404 -> "Объект больше недоступен"
+            409 -> "Действие конфликтует с текущим состоянием"
+            422 -> "Проверьте заполненные данные"
             else -> "Сервер PubChat ответил с ошибкой ${error.code}"
         }
-        else -> "Не удалось связаться с PubChat"
+        else -> error.message?.takeIf { it.isNotBlank() } ?: "Не удалось связаться с PubChat"
     }
 }
