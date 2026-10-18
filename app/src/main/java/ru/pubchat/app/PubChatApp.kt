@@ -61,8 +61,8 @@ fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onD
         AppState.Booting -> LoadingScreen()
         is AppState.SignedOut -> AuthScreen(
             error = current.error,
-            onLogin = { identifier, password -> controller.login(identifier, password) { state = it } },
-            onRegister = { handle, name, email, password, intent -> controller.register(handle, name, email, password, intent) { state = it } },
+            onLogin = { identifier, password, done -> controller.login(identifier, password) { state = it; done() } },
+            onRegister = { handle, name, email, password, intent, done -> controller.register(handle, name, email, password, intent) { state = it; done() } },
         )
         is AppState.SignedIn -> AuthenticatedShell(current, controller, deepLink, onDeepLinkConsumed, incomingAction, onCallActionConsumed) { state = it }
     }
@@ -76,8 +76,8 @@ private fun LoadingScreen() {
 @Composable
 private fun AuthScreen(
     error: String?,
-    onLogin: (String, String) -> Unit,
-    onRegister: (String, String, String, String, String) -> Unit,
+    onLogin: (String, String, () -> Unit) -> Unit,
+    onRegister: (String, String, String, String, String, () -> Unit) -> Unit,
 ) {
     var registration by remember { mutableStateOf(false) }
     var identifier by remember { mutableStateOf("") }
@@ -87,7 +87,7 @@ private fun AuthScreen(
     var password by remember { mutableStateOf("") }
     var intent by remember { mutableStateOf("open") }
     var submitting by remember { mutableStateOf(false) }
-    LaunchedEffect(error) { if (!error.isNullOrBlank()) submitting = false }
+    // Completion is signaled on every request, including repeated identical HTTP 403 errors.
 
     Scaffold { padding ->
         LazyColumn(
@@ -139,7 +139,8 @@ private fun AuthScreen(
                 Button(
                     onClick = {
                         submitting = true
-                        if (registration) onRegister(handle, name, email, password, intent) else onLogin(identifier, password)
+                        if (registration) onRegister(handle, name, email, password, intent) { submitting = false }
+                        else onLogin(identifier, password) { submitting = false }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !submitting && password.isNotBlank() && if (registration) handle.isNotBlank() else identifier.isNotBlank(),
