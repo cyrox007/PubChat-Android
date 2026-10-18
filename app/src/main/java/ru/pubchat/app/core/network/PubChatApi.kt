@@ -210,6 +210,11 @@ class PubChatApi(
         request("POST", "/notifications/v1/native-push/devices", body)
     }
 
+    fun enableNativePushMessages() {
+        request("PATCH", "/notifications/v1/message-preferences",
+            JSONObject().put("native_push_messenger", true))
+    }
+
     fun removeNativePush(installationUid: String) {
         request("POST", "/notifications/v1/native-push/devices/remove",
             JSONObject().put("installation_uid", installationUid))
