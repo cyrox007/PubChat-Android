@@ -273,7 +273,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     LaunchedEffect(deepLink) {
         if (deepLink != null) {
             when (deepLink.kind) {
-                "spaces" -> state.spaces.find { it.uid == deepLink.uid }?.let { openSpace(it) }
+                "spaces" -> openSpace(state.spaces.find { it.uid == deepLink.uid } ?: PubChatApi.SpaceSummary(
+                    deepLink.uid, "Пространство", null, null, null, null, null, null
+                ))
                 "messenger" -> {
                     section = AppSection.MESSENGER
                     loadDialogsAndConnect(deepLink.uid)
