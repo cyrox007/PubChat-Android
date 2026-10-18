@@ -29,14 +29,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
-internal fun publicMediaUrl(value: String?): String? {
-    if (value.isNullOrBlank()) return null
-    return runCatching {
-        val base = URI(BuildConfig.API_BASE_URL)
-        val uri = base.resolve(value)
-        uri.takeIf { it.scheme in setOf("https", "http") && it.host != null }?.toString()
-    }.getOrNull()
-}
+internal fun publicMediaUrl(value: String?): String? = ru.pubchat.app.core.network.resolveMediaUrl(BuildConfig.API_BASE_URL, value)
 
 private fun messageTime(value: String?): String = runCatching {
     val raw = value ?: return ""
