@@ -9,6 +9,9 @@ import org.json.JSONObject
 import org.json.JSONArray
 import ru.pubchat.app.BuildConfig
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.network.HttpClientCleanup
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 class SpaceRealtimeClient(
@@ -18,10 +21,12 @@ class SpaceRealtimeClient(
     private val client = OkHttpClient.Builder()
         .pingInterval(25, TimeUnit.SECONDS)
         .build()
-    private var socket: WebSocket? = null
+    private val scheduler = Executors.newSingleThreadScheduledExecutor()
+    private var heartbeatTask: ScheduledFuture<*>? = null
+    @Volatile private var socket: WebSocket? = null
 
     fun connect(ticket: PubChatApi.RealtimeTicket, resumeToken: String? = null) {
-        close()
+        closeSocket()
         onState("connecting")
         val base = BuildConfig.API_BASE_URL.trimEnd('/')
             .replaceFirst("https://", "wss://")
@@ -41,16 +46,27 @@ class SpaceRealtimeClient(
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val frame = runCatching { JSONObject(text) }.getOrNull() ?: return
-                if (frame.optString("type") == "realtime_ready") onState("connected")
+                if (socket !== webSocket) return
+                if (frame.optString("type") == "realtime_ready") {
+                    onState("connected")
+                    startHeartbeat(webSocket, frame.optInt("heartbeat_seconds", ticket.heartbeatSeconds))
+                }
+                if (frame.optString("type") == "ping") webSocket.send(JSONObject().put("type", "pong").toString())
                 onFrame(frame)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                onState(if (code == 1000) "idle" else "disconnected")
+                if (socket !== webSocket) return
+                stopHeartbeat()
+                socket = null
+                onState(if (RealtimeRetryPolicy.terminalCloseCode(code)) "restricted" else "disconnected")
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                onState("disconnected")
+                if (socket !== webSocket) return
+                stopHeartbeat()
+                socket = null
+                onState(if (RealtimeRetryPolicy.terminalHttpStatus(response?.code)) "restricted" else "disconnected")
             }
         })
     }
@@ -88,8 +104,31 @@ class SpaceRealtimeClient(
     }
 
     fun close() {
-        socket?.close(1000, "Client disconnect")
+        closeSocket()
+        scheduler.shutdownNow()
+        HttpClientCleanup.release(client)
+    }
+
+    private fun startHeartbeat(webSocket: WebSocket, seconds: Int) {
+        stopHeartbeat()
+        val period = seconds.coerceAtLeast(10).toLong()
+        heartbeatTask = scheduler.scheduleAtFixedRate({
+            if (socket === webSocket) {
+                webSocket.send(JSONObject().put("type", "heartbeat").toString())
+            }
+        }, period, period, TimeUnit.SECONDS)
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatTask?.cancel(false)
+        heartbeatTask = null
+    }
+
+    private fun closeSocket() {
+        stopHeartbeat()
+        val old = socket
         socket = null
+        old?.close(1000, "Client disconnect")
     }
 }
 internal fun roomTextFrame(content: String, accountUid: String, displayName: String, replyToUid: String?): JSONObject = JSONObject()

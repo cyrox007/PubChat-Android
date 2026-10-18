@@ -1,6 +1,9 @@
 package ru.pubchat.app
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import ru.pubchat.app.core.calls.CallSignaling
 import ru.pubchat.app.core.calls.NativeCallEngine
 import ru.pubchat.app.core.calls.CallAudioRouter
@@ -16,6 +19,7 @@ import ru.pubchat.app.core.network.parseChatMessage
 import ru.pubchat.app.core.push.FcmRegistration
 import ru.pubchat.app.core.realtime.MessengerRealtimeClient
 import ru.pubchat.app.core.realtime.SpaceRealtimeClient
+import ru.pubchat.app.core.realtime.RealtimeRetryPolicy
 import ru.pubchat.app.core.session.SessionStore
 import java.util.concurrent.Executors
 
@@ -59,6 +63,120 @@ class AppController(context: Context) {
     private val maxCallReconnects = 5
     private var callStatusCallback: ((String, String?, String) -> Unit)? = null
     private var messengerRealtime: MessengerRealtimeClient? = null
+
+    private data class SpaceSubscription(
+        val uid: String,
+        val onReady: (PubChatApi.SpaceSummary) -> Unit,
+        val onInitialMessages: (List<PubChatApi.ChatMessage>) -> Unit,
+        val onMessage: (PubChatApi.ChatMessage) -> Unit,
+        val onConnection: (String) -> Unit,
+        val onError: (String) -> Unit,
+    )
+
+    private data class MessengerSubscription(
+        var activePeerUid: String?,
+        val dialogUids: List<String>,
+        val currentAccountUid: String,
+        val onConversation: (String, List<PubChatApi.ChatMessage>) -> Unit,
+        val onMessage: (String, PubChatApi.ChatMessage) -> Unit,
+        val onRead: (String) -> Unit,
+        val onStatuses: (Map<String, Boolean>) -> Unit,
+        val onConnection: (String) -> Unit,
+        val onError: (String) -> Unit,
+    )
+
+    // Owned by Android main thread. Epochs prevent a stale ticket/socket from
+    // resurrecting a room or messenger after navigation/logout.
+    private var spaceSubscription: SpaceSubscription? = null
+    private var messengerSubscription: MessengerSubscription? = null
+    private var spaceEpoch = 0L
+    private var messengerEpoch = 0L
+    private var spaceConnecting = false
+    private var spaceInitialized = false
+    private var messengerConnecting = false
+    private var spaceStatus = "idle"
+    private var messengerStatus = "idle"
+    private var spaceRetries = 0
+    private var messengerRetries = 0
+    private var spaceRetryTask: Runnable? = null
+    private var messengerRetryTask: Runnable? = null
+    private var foreground = true
+    private val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) { main.post { reconnectOnNetworkReturn() } }
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                main.post { reconnectOnNetworkReturn() }
+            }
+        }
+    }
+
+    init {
+        // Connectivity callback is only a fast path; bounded retries and
+        // foreground resume also recover if an OEM suppresses notifications.
+        runCatching { connectivityManager.registerDefaultNetworkCallback(networkCallback) }
+    }
+
+    fun setForeground(active: Boolean) {
+        foreground = active
+        if (active) reconnectOnNetworkReturn()
+        else {
+            cancelSpaceRetry()
+            cancelMessengerRetry()
+        }
+    }
+
+    private fun reconnectOnNetworkReturn() {
+        if (!foreground) return
+        if (spaceSubscription != null && !spaceConnecting && spaceStatus in setOf("disconnected", "reconnecting")) {
+            cancelSpaceRetry()
+            connectSpace(spaceEpoch, initial = !spaceInitialized)
+        }
+        if (messengerSubscription != null && !messengerConnecting && messengerStatus in setOf("disconnected", "reconnecting")) {
+            cancelMessengerRetry()
+            connectMessengerSocket(messengerEpoch)
+        }
+    }
+
+    private fun cancelSpaceRetry() {
+        spaceRetryTask?.let(main::removeCallbacks)
+        spaceRetryTask = null
+    }
+
+    private fun cancelMessengerRetry() {
+        messengerRetryTask?.let(main::removeCallbacks)
+        messengerRetryTask = null
+    }
+
+    private fun scheduleSpaceRetry(epoch: Long) {
+        if (epoch != spaceEpoch || spaceSubscription == null) return
+        spaceStatus = "reconnecting"
+        spaceSubscription?.onConnection("reconnecting")
+        cancelSpaceRetry()
+        if (!foreground) return
+        val delay = RealtimeRetryPolicy.delayMillis(spaceRetries++)
+        val task = Runnable {
+            spaceRetryTask = null
+            connectSpace(epoch, initial = !spaceInitialized)
+        }
+        spaceRetryTask = task
+        main.postDelayed(task, delay)
+    }
+
+    private fun scheduleMessengerRetry(epoch: Long) {
+        if (epoch != messengerEpoch || messengerSubscription == null) return
+        messengerStatus = "reconnecting"
+        messengerSubscription?.onConnection("reconnecting")
+        cancelMessengerRetry()
+        if (!foreground) return
+        val delay = RealtimeRetryPolicy.delayMillis(messengerRetries++)
+        val task = Runnable {
+            messengerRetryTask = null
+            connectMessengerSocket(epoch)
+        }
+        messengerRetryTask = task
+        main.postDelayed(task, delay)
+    }
 
     fun bootstrap(onState: (AppState) -> Unit) {
         if (session.accessToken().isNullOrBlank()) {
@@ -170,24 +288,79 @@ class AppController(context: Context) {
         onConnection: (String) -> Unit,
         onError: (String) -> Unit,
     ) {
-        realtime?.close()
+        closeSpace()
+        spaceSubscription = SpaceSubscription(spaceUid, onReady, onInitialMessages, onMessage, onConnection, onError)
+        spaceRetries = 0
+        connectSpace(spaceEpoch, initial = true)
+    }
+
+    private fun connectSpace(epoch: Long, initial: Boolean) {
+        val target = spaceSubscription ?: return
+        if (epoch != spaceEpoch || spaceConnecting) return
+        spaceConnecting = true
+        spaceStatus = if (initial && spaceRetries == 0) "connecting" else "reconnecting"
+        target.onConnection(spaceStatus)
         executor.execute {
             runCatching {
-                var space = authenticated { api.space(spaceUid) }
-                if (!space.isActiveMember && space.joinPolicy == "open") space = authenticated { api.joinSpace(spaceUid) }
-                if (!space.isActiveMember) throw IllegalStateException("Сначала нужно вступить в пространство")
-                space to authenticated { api.realtimeTicket(spaceUid) }
+                val space = if (initial) {
+                    var result = authenticated { api.space(target.uid) }
+                    if (!result.isActiveMember && result.joinPolicy == "open") {
+                        result = authenticated { api.joinSpace(target.uid) }
+                    }
+                    if (!result.isActiveMember) throw IllegalStateException("Сначала нужно вступить в пространство")
+                    result
+                } else null
+                space to authenticated { api.realtimeTicket(target.uid) }
             }.onSuccess { (space, ticket) ->
                 main.post {
-                    onReady(space)
-                    val client = SpaceRealtimeClient(
-                        onFrame = { frame -> main.post { handleSpaceFrame(frame, onInitialMessages, onMessage, onError) } },
-                        onState = { state -> main.post { onConnection(state) } },
+                    if (epoch != spaceEpoch || spaceSubscription !== target) return@post
+                    spaceConnecting = false
+                    if (space != null) {
+                        spaceInitialized = true
+                        target.onReady(space)
+                    }
+                    realtime?.close()
+                    lateinit var client: SpaceRealtimeClient
+                    client = SpaceRealtimeClient(
+                        onFrame = { frame -> main.post {
+                            if (epoch == spaceEpoch && realtime === client) {
+                                handleSpaceFrame(frame, target.onInitialMessages, target.onMessage, target.onError)
+                            }
+                        } },
+                        onState = { status -> main.post {
+                            if (epoch != spaceEpoch || realtime !== client) return@post
+                            spaceStatus = status
+                            if (status == "connected") {
+                                spaceRetries = 0
+                                cancelSpaceRetry()
+                            }
+                            target.onConnection(status)
+                            if (status == "disconnected") {
+                                realtime = null
+                                client.close()
+                                scheduleSpaceRetry(epoch)
+                            } else if (status == "restricted") {
+                                realtime = null
+                                client.close()
+                                target.onError("Сервер ограничил доступ к пространству")
+                            }
+                        } },
                     )
                     realtime = client
                     client.connect(ticket)
                 }
-            }.onFailure { error -> main.post { onError(humanMessage(error)) } }
+            }.onFailure { error -> main.post {
+                if (epoch != spaceEpoch || spaceSubscription !== target) return@post
+                spaceConnecting = false
+                val status = (error as? PubChatApi.ApiFailure)?.code
+                if (RealtimeRetryPolicy.terminalHttpStatus(status)) {
+                    spaceStatus = "restricted"
+                    target.onConnection("restricted")
+                    target.onError(humanMessage(error))
+                } else {
+                    scheduleSpaceRetry(epoch)
+                }
+            } }
         }
     }
 
@@ -203,42 +376,83 @@ class AppController(context: Context) {
         onError: (String) -> Unit,
     ) {
         closeMessenger()
+        messengerSubscription = MessengerSubscription(
+            activePeerUid, dialogUids, currentAccountUid, onConversation, onMessage,
+            onRead, onStatuses, onConnection, onError,
+        )
+        messengerRetries = 0
+        connectMessengerSocket(messengerEpoch)
+    }
+
+    private fun connectMessengerSocket(epoch: Long) {
+        val target = messengerSubscription ?: return
+        if (epoch != messengerEpoch || messengerConnecting) return
+        messengerConnecting = true
+        messengerStatus = if (messengerRetries == 0) "connecting" else "reconnecting"
+        target.onConnection(messengerStatus)
         executor.execute {
             runCatching { authenticated { api.messengerRealtimeTicket() } }
-                .onSuccess { ticket ->
-                    main.post {
-                        val client = MessengerRealtimeClient(
-                            onFrame = { frame ->
-                                main.post {
-                                    when (frame.optString("type")) {
-                                        "realtime_ready" -> {
-                                            if (dialogUids.isNotEmpty()) clientSubscribe(client = messengerRealtime, uids = dialogUids)
-                                            activePeerUid?.let { messengerRealtime?.requestConversation(it) }
-                                        }
-                                        "conversation" -> {
-                                            val peer = frame.optString("other_user_uid")
-                                            if (peer.isNotBlank()) onConversation(peer, parseConversation(frame, currentAccountUid))
-                                        }
-                                        "private_message" -> {
-                                            parseMessage(frame)?.let { message ->
-                                                val peer = if (message.senderUid == currentAccountUid) message.receiverUid else message.senderUid
-                                                if (!peer.isNullOrBlank()) onMessage(peer, message)
-                                            }
-                                        }
-                                        "message_read" -> frame.optString("message_uid").takeIf { it.isNotBlank() }?.let(onRead)
-                                        "status_update" -> onStatuses(parseStatuses(frame.optJSONObject("statuses")))
-                                        "rate_limited" -> onError("Слишком много сообщений подряд")
-                                        "error" -> onError(if (frame.optString("error_type") == "dm_not_allowed") "Личные сообщения этому человеку недоступны" else "Messenger действие не выполнено")
+                .onSuccess { ticket -> main.post {
+                    if (epoch != messengerEpoch || messengerSubscription !== target) return@post
+                    messengerConnecting = false
+                    messengerRealtime?.close()
+                    lateinit var client: MessengerRealtimeClient
+                    client = MessengerRealtimeClient(
+                        onFrame = { frame -> main.post {
+                            if (epoch != messengerEpoch || messengerRealtime !== client) return@post
+                            when (frame.optString("type")) {
+                                "realtime_ready" -> {
+                                    if (target.dialogUids.isNotEmpty()) client.subscribeStatuses(target.dialogUids)
+                                    target.activePeerUid?.let { peer -> client.requestConversation(peer) }
+                                }
+                                "conversation" -> {
+                                    val peer = frame.optString("other_user_uid")
+                                    if (peer.isNotBlank()) target.onConversation(peer, parseConversation(frame, target.currentAccountUid))
+                                }
+                                "private_message" -> {
+                                    parseMessage(frame)?.let { message ->
+                                        val peer = if (message.senderUid == target.currentAccountUid) message.receiverUid else message.senderUid
+                                        if (!peer.isNullOrBlank()) target.onMessage(peer, message)
                                     }
                                 }
-                            },
-                            onState = { state -> main.post { onConnection(state) } },
-                        )
-                        messengerRealtime = client
-                        client.connect(ticket, activePeerUid)
-                    }
-                }
-                .onFailure { error -> main.post { onError(humanMessage(error)) } }
+                                "message_read" -> frame.optString("message_uid").takeIf { it.isNotBlank() }?.let(target.onRead)
+                                "status_update" -> target.onStatuses(parseStatuses(frame.optJSONObject("statuses")))
+                                "rate_limited" -> target.onError("Слишком много сообщений подряд")
+                                "error" -> target.onError(if (frame.optString("error_type") == "dm_not_allowed") "Личные сообщения этому человеку недоступны" else "Messenger действие не выполнено")
+                            }
+                        } },
+                        onState = { status -> main.post {
+                            if (epoch != messengerEpoch || messengerRealtime !== client) return@post
+                            messengerStatus = status
+                            if (status == "connected") {
+                                messengerRetries = 0
+                                cancelMessengerRetry()
+                            }
+                            target.onConnection(status)
+                            if (status == "disconnected") {
+                                messengerRealtime = null
+                                client.close()
+                                scheduleMessengerRetry(epoch)
+                            } else if (status == "restricted") {
+                                messengerRealtime = null
+                                client.close()
+                                target.onError("Сервер ограничил доступ к переписке")
+                            }
+                        } },
+                    )
+                    messengerRealtime = client
+                    client.connect(ticket, target.activePeerUid)
+                } }
+                .onFailure { error -> main.post {
+                    if (epoch != messengerEpoch || messengerSubscription !== target) return@post
+                    messengerConnecting = false
+                    val status = (error as? PubChatApi.ApiFailure)?.code
+                    if (RealtimeRetryPolicy.terminalHttpStatus(status)) {
+                        messengerStatus = "restricted"
+                        target.onConnection("restricted")
+                        target.onError(humanMessage(error))
+                    } else scheduleMessengerRetry(epoch)
+                } }
         }
     }
 
@@ -246,7 +460,10 @@ class AppController(context: Context) {
         client?.subscribeStatuses(uids)
     }
 
-    fun requestConversation(peerUid: String): Boolean = messengerRealtime?.requestConversation(peerUid) == true
+    fun requestConversation(peerUid: String): Boolean {
+        messengerSubscription?.activePeerUid = peerUid
+        return messengerRealtime?.requestConversation(peerUid) == true
+    }
 
     fun sendPrivateMessage(peerUid: String, content: String): Boolean {
         if (content.isBlank()) return false
@@ -617,11 +834,22 @@ class AppController(context: Context) {
     }
 
     fun closeSpace() {
+        ++spaceEpoch
+        spaceSubscription = null
+        spaceConnecting = false
+        spaceInitialized = false
+        spaceStatus = "idle"
+        cancelSpaceRetry()
         realtime?.close()
         realtime = null
     }
 
     fun closeMessenger() {
+        ++messengerEpoch
+        messengerSubscription = null
+        messengerConnecting = false
+        messengerStatus = "idle"
+        cancelMessengerRetry()
         messengerRealtime?.close()
         messengerRealtime = null
     }
@@ -642,6 +870,7 @@ class AppController(context: Context) {
         closeSpace()
         closeMessenger()
         disconnectCalls()
+        runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
         executor.shutdownNow()
     }
 
