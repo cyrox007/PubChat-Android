@@ -30,6 +30,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -459,17 +463,29 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             else -> Unit
                         }
                     }) { Text("Назад") }
-                } else TextButton(onClick = { controller.logout(onState) }) { Text("Выйти") }
+                } else if (section == AppSection.PROFILE) {
+                    TextButton(onClick = { controller.logout(onState) }) { Text("Выйти") }
+                }
             }
         },
         bottomBar = {
             if (section !in listOf(AppSection.SPACE, AppSection.PERSON, AppSection.MESSENGER_CHAT)) {
-                Row(Modifier.fillMaxWidth().padding(6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    NavButton("Пространства", section == AppSection.SPACES) { controller.closeMessenger(); section = AppSection.SPACES }
-                    NavButton("Люди", section == AppSection.PEOPLE) { controller.closeMessenger(); section = AppSection.PEOPLE; loadPeople() }
-                    NavButton("Сообщения", section == AppSection.MESSENGER) { section = AppSection.MESSENGER; loadDialogsAndConnect() }
-                    NavButton("Важное", section == AppSection.NOTIFICATIONS) { controller.closeMessenger(); section = AppSection.NOTIFICATIONS; loadNotices() }
-                    NavButton("Профиль", section == AppSection.PROFILE) { controller.closeMessenger(); section = AppSection.PROFILE }
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    NavigationBarItem(selected = section == AppSection.SPACES,
+                        onClick = { controller.closeMessenger(); section = AppSection.SPACES },
+                        icon = { Text("▦") }, label = { Text("Места") })
+                    NavigationBarItem(selected = section == AppSection.PEOPLE,
+                        onClick = { controller.closeMessenger(); section = AppSection.PEOPLE; loadPeople() },
+                        icon = { Text("♧") }, label = { Text("Люди") })
+                    NavigationBarItem(selected = section == AppSection.MESSENGER,
+                        onClick = { section = AppSection.MESSENGER; loadDialogsAndConnect() },
+                        icon = { Text("✉") }, label = { Text("Чаты") })
+                    NavigationBarItem(selected = section == AppSection.NOTIFICATIONS,
+                        onClick = { controller.closeMessenger(); section = AppSection.NOTIFICATIONS; loadNotices() },
+                        icon = { Text("◉") }, label = { Text("Важное") })
+                    NavigationBarItem(selected = section == AppSection.PROFILE,
+                        onClick = { controller.closeMessenger(); section = AppSection.PROFILE },
+                        icon = { Text("◌") }, label = { Text("Профиль") })
                 }
             }
         },
@@ -553,7 +569,7 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
         if (state.loading) Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state.spaces, key = PubChatApi.SpaceSummary::uid) { space ->
-                Card(Modifier.fillMaxWidth().clickable { onOpen(space) }) {
+                Card(Modifier.fillMaxWidth().clickable { onOpen(space) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Column(Modifier.padding(16.dp)) {
                         Text(space.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         space.purpose?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
@@ -579,7 +595,7 @@ private fun PeopleContent(people: List<PubChatApi.PersonSummary>, loading: Boole
         if (loading) Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
             items(people, key = PubChatApi.PersonSummary::accountUid) { person ->
-                Card(Modifier.fillMaxWidth().clickable { onOpen(person) }) {
+                Card(Modifier.fillMaxWidth().clickable { onOpen(person) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Column(Modifier.padding(14.dp)) {
                         Text(person.displayName, fontWeight = FontWeight.SemiBold)
                         person.handle?.let { Text("@$it", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -600,7 +616,7 @@ private fun MessengerListContent(dialogs: List<PubChatApi.DialogSummary>, loadin
         else LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (dialogs.isEmpty()) item { Text("Личные разговоры появятся здесь после первого сообщения.", Modifier.padding(12.dp)) }
             items(dialogs, key = PubChatApi.DialogSummary::partnerUid) { dialog ->
-                Card(Modifier.fillMaxWidth().clickable { onOpen(dialog) }) {
+                Card(Modifier.fillMaxWidth().clickable { onOpen(dialog) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
