@@ -346,6 +346,15 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         }
     }
 
+    fun loadPeople() {
+        peopleLoading = true
+        controller.loadPeople(search, peopleIntent.takeUnless { it == "all" }, peopleAvailableNow) { result, error ->
+            people = result
+            peopleError = error
+            peopleLoading = false
+        }
+    }
+
     fun loadAvailability() {
         controller.loadSocialAvailability { loaded, error ->
             myAvailability = loaded
@@ -371,15 +380,6 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             availabilityBusy = false
             if (error != null) availabilityError = error
             else { myAvailability = null; loadPeople() }
-        }
-    }
-
-    fun loadPeople() {
-        peopleLoading = true
-        controller.loadPeople(search, peopleIntent.takeUnless { it == "all" }, peopleAvailableNow) { result, error ->
-            people = result
-            peopleError = error
-            peopleLoading = false
         }
     }
 
