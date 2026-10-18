@@ -421,6 +421,8 @@ class AppController(context: Context) {
         }
     }
 
+    fun isPendingCall(callUid: String): Boolean = offerPending?.optString("call_uid") == callUid
+
     fun acceptCall() {
         val frame = offerPending ?: return
         offerPending = null
