@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -51,6 +52,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
 
 enum class AppSection { SPACES, PEOPLE, MESSENGER, PROFILE, PERSON, SPACE, MESSENGER_CHAT, NOTIFICATIONS }
@@ -735,23 +738,50 @@ private fun MessengerChatContent(
 
 @Composable
 private fun MessageCard(message: PubChatApi.ChatMessage, own: Boolean, onClick: (() -> Unit)?) {
-    Card(Modifier.fillMaxWidth().let { if (onClick != null) it.clickable(onClick = onClick) else it }) {
-        Column(Modifier.padding(10.dp)) {
-            if (!own) Text(message.senderName ?: "Участник PubChat", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            if (message.replyToUid != null) Text("↪ Ответ на сообщение", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            Text(if (message.contentType == "deleted") "Сообщение удалено" else message.attachmentName?.let { "📎 $it" } ?: message.content)
-            message.reactions?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
-            if (own) Text(if (message.isRead) "Прочитано" else "Отправлено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (own) Arrangement.End else Arrangement.Start) {
+        Card(
+            modifier = Modifier.widthIn(max = 320.dp).let { if (onClick != null) it.clickable(onClick = onClick) else it },
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+            ),
+        ) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!own) Text(message.senderName ?: "Участник PubChat",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary)
+                if (message.replyToUid != null) Text("↪ Ответ на сообщение",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Text(if (message.contentType == "deleted") "Сообщение удалено"
+                    else message.attachmentName?.let { "📎 $it" } ?: message.content,
+                    style = MaterialTheme.typography.bodyMedium)
+                message.reactions?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall)
+                }
+                if (own) Text(if (message.isRead) "✓✓ Прочитано" else "✓ Отправлено",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
 
 @Composable
 private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean, onSend: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(draft, onDraft, Modifier.weight(1f), placeholder = { Text("Сообщение") }, maxLines = 4, enabled = enabled)
-        Spacer(Modifier.padding(4.dp))
-        Button(onClick = onSend, enabled = enabled && draft.isNotBlank()) { Text("Отпр.") }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = onDraft,
+            modifier = Modifier.weight(1f),
+            placeholder = { Text(if (enabled) "Написать сообщение…" else "Ожидаем соединение…") },
+            shape = RoundedCornerShape(20.dp),
+            maxLines = 5,
+            enabled = enabled,
+        )
+        Button(onClick = onSend, enabled = enabled && draft.isNotBlank(),
+            shape = RoundedCornerShape(20.dp)) { Text("➤") }
     }
 }
 
