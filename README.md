@@ -71,3 +71,7 @@ Authenticated routes: `pubchat://spaces/<uuid>`, `pubchat://messenger/<uuid>`, `
 5. Rebuild/reinstall Android; after login it registers/updates the device FCM token via `POST /notifications/v1/native-push/devices` and revokes registration on logout.
 
 FCM is inactive without Firebase configuration. UI notification center still works without it. Push payloads are generic and never carry private message plaintext. Production delivery must be smoke-tested on a physical device. Android app links require matching domain assetlinks.json separately.
+
+## Android foreground calls (in progress)
+
+Uses a separate ticket-authenticated `/ws/v2/calls` socket with `call_offer`, `call_answer`, `call_ice`, `call_decline`, `call_end`; ICE/TURN settings are read from `/calls/v1/ice-config` with strict relay mode honored. Call media uses native WebRTC DTLS-SRTP, not application-verified E2EE. The present UI covers call setup/incoming consent, mute and hangup while the process is foregrounded. Video track rendering, Android audio routing, background incoming-call wakeup and foreground service/notification integration still require follow-up before production call parity. Never describe this slice as finished calling parity until tested end-to-end between Android and web devices.
