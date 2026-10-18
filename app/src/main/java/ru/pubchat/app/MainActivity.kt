@@ -67,7 +67,10 @@ class MainActivity : ComponentActivity() {
         val controller = AppController(applicationContext)
         setContent {
             PubChatTheme {
-                PubChatApp(controller, destination.value, { destination.value = null }, callAction.value) { callAction.value = null }
+                PubChatApp(controller, destination.value, { destination.value = null }, callAction.value) {
+                    callAction.value = null
+                    configureLockScreen(false)
+                }
             }
         }
     }
