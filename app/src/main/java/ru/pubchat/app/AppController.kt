@@ -50,6 +50,10 @@ class AppController(context: Context) {
     private val callAudio = CallAudioRouter(appContext)
     private var offerPending: JSONObject? = null
     private var callGeneration = 0L
+    private var callConnectionEpoch = 0L
+    private var reconnectAttempts = 0
+    private var iceRecoveryEpoch = 0L
+    private val maxCallReconnects = 5
     private var callStatusCallback: ((String, String?, String) -> Unit)? = null
     private var messengerRealtime: MessengerRealtimeClient? = null
 
@@ -324,35 +328,88 @@ class AppController(context: Context) {
     fun connectCalls(onStatus: (String, String?, String) -> Unit) {
         callStatusCallback = onStatus
         if (callSocket != null) return
+        val epoch = ++callConnectionEpoch
         executor.execute {
             runCatching { authenticated { api.messengerRealtimeTicket() } }
                 .onSuccess { ticket -> main.post {
-                    if (callSocket != null) return@post
-                    val socket = CallSignaling(
-                        onSignal = { frame -> main.post { handleCallSignal(frame) } },
-                        onStatus = { status -> main.post {
-                            if (status == "ready") reloadPendingIncomingCall()
-                            if (status == "disconnected") {
-                                callEngine?.end(false)
-                                callAudio.release()
-                                CallForegroundService.stop(appContext)
-                                callStatusCallback?.invoke("disconnected", null, "audio")
-                                callSocket?.destroy()
-                                callSocket = null
+                    if (epoch != callConnectionEpoch || callStatusCallback == null || callSocket != null) return@post
+                    lateinit var socket: CallSignaling
+                    socket = CallSignaling(
+                        onSignal = { frame -> main.post {
+                            if (callSocket === socket) handleCallSignal(frame)
+                        } },
+                        onStatus = { state -> main.post {
+                            if (callSocket !== socket) return@post
+                            when (state) {
+                                "ready" -> {
+                                    reconnectAttempts = 0
+                                    reloadPendingIncomingCall()
+                                }
+                                "disconnected" -> handleCallSocketLoss(socket)
                             }
                         } },
                     )
                     callSocket = socket
+                    callEngine?.release()
                     callEngine = NativeCallEngine(appContext,
                         sendSignal = { peer, uid, action, payload -> callSocket?.send(peer, uid, action, payload) == true },
                         status = { phase -> main.post {
-                            if (phase != "idle") callStatusCallback?.invoke(phase, callEngine?.peerUid, callEngine?.mode ?: "audio")
+                            if (callSocket !== socket) return@post
+                            if (phase == "reconnecting") {
+                                val recoveryEpoch = ++iceRecoveryEpoch
+                                main.postDelayed({
+                                    if (recoveryEpoch == iceRecoveryEpoch && callEngine?.callUid != null) {
+                                        endCall()
+                                        callStatusCallback?.invoke("error", null, "audio")
+                                    }
+                                }, 12_000L)
+                            } else if (phase == "active" || phase == "error" || phase == "idle") {
+                                ++iceRecoveryEpoch
+                            }
+                            if (phase == "error") {
+                                endCall()
+                                callStatusCallback?.invoke("error", null, "audio")
+                            } else if (phase != "idle") {
+                                callStatusCallback?.invoke(phase, callEngine?.peerUid, callEngine?.mode ?: "audio")
+                            }
                         } },
                     )
                     socket.connect(ticket)
                 } }
-                .onFailure { main.post { onStatus("unavailable", null, "audio") } }
+                .onFailure { main.post {
+                    if (epoch == callConnectionEpoch) scheduleCallReconnect()
+                } }
         }
+    }
+
+    private fun handleCallSocketLoss(socket: CallSignaling) {
+        if (callSocket !== socket) return
+        ++iceRecoveryEpoch
+        val hadCall = callEngine?.callUid != null || offerPending != null
+        ++callGeneration
+        offerPending = null
+        callEngine?.release()
+        callEngine = null
+        callAudio.release()
+        CallForegroundService.stop(appContext)
+        callSocket = null
+        socket.destroy()
+        if (hadCall) callStatusCallback?.invoke("disconnected", null, "audio")
+        scheduleCallReconnect()
+    }
+
+    private fun scheduleCallReconnect() {
+        if (callStatusCallback == null || callSocket != null || reconnectAttempts >= maxCallReconnects) {
+            if (reconnectAttempts >= maxCallReconnects) callStatusCallback?.invoke("unavailable", null, "audio")
+            return
+        }
+        val epoch = ++callConnectionEpoch
+        val delayMs = (1000L shl reconnectAttempts.coerceAtMost(4)).coerceAtMost(16000L)
+        reconnectAttempts++
+        main.postDelayed({
+            val callback = callStatusCallback
+            if (epoch == callConnectionEpoch && callSocket == null && callback != null) connectCalls(callback)
+        }, delayMs)
     }
 
     private fun reloadPendingIncomingCall() {
@@ -454,6 +511,7 @@ class AppController(context: Context) {
     }
 
     fun endCall(decline: Boolean = false) {
+        ++iceRecoveryEpoch
         ++callGeneration
         val pending = offerPending
         if (pending != null) {
@@ -477,6 +535,9 @@ class AppController(context: Context) {
     fun setCallCamera(enabled: Boolean) { callEngine?.camera(enabled) }
 
     fun disconnectCalls() {
+        ++iceRecoveryEpoch
+        ++callConnectionEpoch
+        reconnectAttempts = 0
         ++callGeneration
         callEngine?.release()
         callAudio.release()
