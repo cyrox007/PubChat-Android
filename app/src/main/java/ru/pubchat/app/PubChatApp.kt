@@ -918,29 +918,89 @@ private fun NavButton(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun SpacesContent(state: AppState.SignedIn, controller: AppController, onState: (AppState) -> Unit, onOpen: (PubChatApi.SpaceSummary) -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        if (!state.error.isNullOrBlank()) Text(state.error, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
-        if (state.loading && state.spaces.isEmpty()) PubChatListSkeleton()
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (state.spaces.isEmpty() && !state.loading) item {
-                PubChatEmptyState(
-                    title = "Пока нет пространств",
-                    explanation = "Новые пространства появятся здесь. Обновите каталог позднее.",
-                    actionLabel = "Обновить", onAction = { controller.reload(state, onState) },
-                )
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        if (state.loading && state.spaces.isEmpty()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Открывай своё", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("Пространства по интересам", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            items(state.spaces, key = PubChatApi.SpaceSummary::uid) { space ->
-                Card(Modifier.fillMaxWidth().clickable { onOpen(space) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(space.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        space.purpose?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-                        space.description?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        Spacer(Modifier.height(6.dp))
-                        Text(if (space.isActiveMember) "Открыть разговор" else "Вступить и открыть", style = MaterialTheme.typography.labelMedium)
+            PubChatListSkeleton()
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("Открывай своё", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Найди пространство для общения и новых идей",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (state.loading) {
+                            androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+                if (!state.error.isNullOrBlank()) item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Не удалось обновить пространства", color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontWeight = FontWeight.SemiBold)
+                            Text(state.error, color = MaterialTheme.colorScheme.onErrorContainer)
+                            OutlinedButton(onClick = { controller.reload(state, onState) }) { Text("Повторить") }
+                        }
+                    }
+                }
+                if (state.spaces.isEmpty() && !state.loading) item {
+                    PubChatEmptyState(
+                        title = if (state.error.isNullOrBlank()) "Пока нет пространств" else "Каталог недоступен",
+                        explanation = if (state.error.isNullOrBlank())
+                            "Здесь появятся сообщества по вашим интересам."
+                        else "Проверьте соединение и повторите попытку.",
+                        actionLabel = "Обновить",
+                        onAction = { controller.reload(state, onState) },
+                    )
+                }
+                items(state.spaces, key = PubChatApi.SpaceSummary::uid) { space ->
+                    Card(
+                        Modifier.fillMaxWidth().clickable { onOpen(space) },
+                        shape = RoundedCornerShape(22.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    ) {
+                        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.Top) {
+                            Box(
+                                Modifier.size(58.dp).clip(RoundedCornerShape(16.dp)).background(
+                                    androidx.compose.ui.graphics.Brush.linearGradient(listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        androidx.compose.ui.graphics.Color(0xFF06C7EC),
+                                    ))
+                                ),
+                                contentAlignment = Alignment.Center,
+                            ) { Text("P", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold, fontSize = 27.sp) }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text(space.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                space.purpose?.let { Text(it, color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelMedium) }
+                                space.description?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 3, style = MaterialTheme.typography.bodyMedium) }
+                                Text(if (space.isActiveMember) "Открыть разговор →" else "Вступить и открыть →",
+                                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
+                item {
+                    OutlinedButton(onClick = { controller.reload(state, onState) },
+                        modifier = Modifier.fillMaxWidth(), enabled = !state.loading) {
+                        Text(if (state.loading) "Обновляем…" else "Обновить каталог")
                     }
                 }
             }
-            item { OutlinedButton(onClick = { controller.reload(state, onState) }, Modifier.fillMaxWidth()) { Text("Обновить") } }
         }
     }
 }
