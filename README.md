@@ -1,101 +1,68 @@
 # PubChat Android
 
-Native Android client for PubChat.
+Нативный клиент PubChat на Kotlin и Jetpack Compose. **Статус: разработка / техническое тестирование**, функциональный паритет с веб-клиентом и готовность к публичному выпуску не подтверждены.
 
-## Foundation
+**Репозитории**
+- Android: [cyrox007/PubChat-Android](https://github.com/cyrox007/PubChat-Android), основная ветка `master`.
+- Backend + веб-клиент: [cyrox007/chat](https://github.com/cyrox007/chat), основная ветка `main`. Это **текущее** имя: `cyrox007/PubChat` пока не существует как адрес основной системы; старый `cyrox007/PubChat` перенаправляется на Android-репозиторий. После переименования сервера ссылки нужно обновить.
 
-- Kotlin + Jetpack Compose
-- package `ru.pubchat.app`
-- minSdk 26
-- stable `X-PubChat-Device-ID` per installation
-- access token + refresh cookie encrypted with Android Keystore (AES/GCM)
-- automatic access-token refresh through `/api/identity/v2/refresh`
-- production API base defaults to `https://pubchat.ru/api`
-- CI runs unit tests, Android lint and `assembleDebug`
+## Архитектура и сборка
 
-## Current working slice
+- Namespace/package: `ru.pubchat.app`; `minSdk = 26`, `targetSdk = 37`; версия из Gradle: `0.2.0`.
+- `BuildConfig.API_BASE_URL` по умолчанию `https://pubchat.ru/api`; override: `./gradlew assembleDebug -PPUBCHAT_API_BASE_URL=https://example.test/api`.
+- Android Keystore (AES/GCM) для локального хранения токена доступа и refresh cookie; стабильный `X-PubChat-Device-ID` для установки. Токены не должны попадать в документацию, логи или Git.
+- HTTP API + отдельные WebSocket-соединения для Spaces, Messenger и calls. Сервер выдаёт одноразовые realtime tickets.
+- `./gradlew testDebugUnitTest`, `./gradlew lintDebug`, `./gradlew assembleDebug` — CI-gates; успешный CI **не** заменяет тесты на физических устройствах.
 
-- native login and registration through `/identity/v2`
-- secure multi-device session foundation
-- Spaces list and Space detail/open-join flow
-- native Space WebSocket through `/realtime/v2/tickets`
-- initial Space message history, live room messages and native send composer
-- People discovery through `/social/v1/discover`
-- public Persona profile opening and own Persona summary
-- Messenger dialog list with unread counters
-- open DM directly from a Persona profile
-- native Messenger realtime ticket/WebSocket authentication
-- DM history, live messages, read receipts and presence subscription
-- DM send composer
-- reply, edit, delete, reaction and forward message actions
+## Реализованный программный функционал
 
-## Site parity target
+- Регистрация, вход, базовая Persona и People discovery.
+- Список Spaces, вход в пространство, история и realtime-сообщения, отправка текста, небольших вложений (до 2 МиБ через data-URL).
+- Messenger: диалоги, непрочитанное, статусы, история и realtime-DM, текстовая отправка, реакции, редактирование, ответ, удаление, пересылка.
+- Встроенный центр уведомлений, read/unread, deep links `pubchat://spaces/<uuid>` / `pubchat://messenger/<uuid>` и HTTPS-маршруты для этих разделов.
+- Регистрация Android FCM-токена при настроенном Firebase, удаление токена при выходе; generic push уведомления без содержимого переписки.
+- WebRTC аудио/видео: ICE config с сервера, отдельный signaling WebSocket, входящие/исходящие предложения, отображение удалённого видео, управление микрофоном/камерой/динамиком и foreground service для уже инициированного вызова.
+- Входящие вызовы: короткоживущее серверное предложение (Redis, 60 секунд), отдельный data-only FCM wakeup без SDP/ICE, уведомление с действиями ответа/отказа. Приложение проверяет авторизацию, соответствие `call_uid` и runtime-разрешения до принятия.
+- Переподключение signaling с ограниченным backoff, 12-секундный recovery window для временной потери ICE, экспериментальный ICE restart (Android ↔ web).
 
-Android is considered ready only when normal user flows available on the web client are available natively as well. Remaining parity blocks include:
+Это описание **наличия кода**, не гарантия корректной работы в production или на конкретной прошивке Android.
 
-1. Messenger media/attachments and E2EE-aware delivery UX.
-2. Production FCM notification dispatch requires a dedicated authenticated Android-token registration/delivery API, Firebase setup, and push delivery tests; existing backend Web Push (VAPID) is not FCM. HTTPS app-link verification also requires an Android assetlinks.json hosted by pubchat.ru.
-3. Native voice/video WebRTC calls.
-4. Full Space sections: Community, Life, Support and moderation.
-5. Invitations, events, games, tasks and membership management.
-6. Persona editing, privacy and style.
-7. Device/session management, Safety Center, blocks/reports/restrictions/appeals.
-8. Achievements and Trust & Safety moderator flows.
-9. Admin flows for admin/superadmin roles.
-10. E2EE device registration/verification and local key storage.
-11. Offline cache, reconnect/sync and release hardening.
+## Что ещё не готово
 
-## API endpoint override
+1. **E2EE для DM на Android**: нативные ключи, проверка устройств и E2EE-aware отправка. Текстовый DM composer не означает защищённую доставку; не используйте его для конфиденциальных сообщений до аудита политики plaintext/fail-closed.
+2. Полный паритет Space (сообщество, активности, роли/модерация, приглашения, управление участниками) и Persona (редактирование, стиль и приватность).
+3. Safety Center, блокировки, жалобы, апелляции, админ-функции, управление устройствами/сессиями.
+4. Полноценная галерея вложений и безопасные DM-вложения; offline cache/синхронизация.
+5. Отработка Telecom/ConnectionService, Bluetooth/headset routing, lifecycle/revocation при убийстве процесса, поведение на экране блокировки.
+6. Glare при одновременном ICE restart, истечение TURN credentials, продление/обновление ICE server config, end-to-end тест Wi-Fi ↔ LTE.
+7. Публикация и проверка Android Digital Asset Links (`assetlinks.json`) для HTTPS App Links.
+8. Реальные Android ↔ Android / Android ↔ браузер испытания. Verified application E2EE и привязка звонка к личности устройства **не реализованы**.
 
-For another environment pass a Gradle property:
+## Firebase / push: настройка
 
-```bash
-./gradlew assembleDebug -PPUBCHAT_API_BASE_URL=https://example.test/api
-```
+1. В Firebase зарегистрировать release `ru.pubchat.app` и отдельно debug `ru.pubchat.app.debug`.
+2. Локально положить `app/google-services.json` (не коммитить). Google Services plugin активируется только при наличии этого файла.
+3. На сервере настроить `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, `FCM_SERVICE_ACCOUNT_PRIVATE_KEY` в защищённом окружении. Включить и проверить worker native push и настройку `native_push_messenger` у аккаунта.
+4. После входа проверить регистрацию через `POST /notifications/v1/native-push/devices`, получение push в foreground/background, смену токена и отзыв регистрации при logout.
+5. Для звонков проверить `/calls/v1/pending-offer`, срок 60 секунд, отсутствие SDP и ICE в push, запрет автоответа/доступа к камере из background, отклонение старого `call_uid`.
 
-Cleartext traffic is intentionally disabled. Local development should use HTTPS or an explicit debug-only network security policy.
-## Media and push constraints
+Без Firebase и серверных credentials Android push в реальности не доставляется. Generic Web Push/VAPID сайта не заменяет FCM.
 
-Space uploads use the site's existing realtime data-URL media envelope, limited to 2 MiB on Android to bound memory and WebSocket frames. They do not yet persist attachments offline or provide a native media viewer. Do not send DM attachments in plaintext: native E2EE device identity/key agreement is required first. The notifications tab is an authenticated foreground inbox; no background FCM push or Android deep-link dispatch is claimed until server contracts and Firebase provisioning are implemented.
+## WebRTC: контракт
 
-## Deep links
+- `GET /calls/v1/ice-config`: STUN/TURN, credentials, `ice_transport_policy` (в том числе строгий `relay`).
+- `/ws/v2/calls` с одноразовым Messenger ticket: `call_offer`, `call_answer`, `call_ice`, `call_decline`, `call_end`.
+- Для уже активного звонка `call_offer` с `ice_restart=true` — **renegotiation**, не новый вызов и не новый FCM push. Веб-клиент и сервер должны быть совместимы с флагом.
+- `GET /calls/v1/pending-offer`: только авторизованный получатель, краткоживущая запись в Redis.
+- Медиатранспорт: WebRTC DTLS-SRTP; **signaling E2EE, verified E2EE и device identity binding отсутствуют**.
+- При потере signaling текущий медиавызов безопасно завершается, а signaling пытается переподключиться. ICE restart применяется только к действующему peer connection во время краткого ICE-обрыва; восстановление после гибели процесса не обещается.
 
-Authenticated routes: `pubchat://spaces/<uuid>`, `pubchat://messenger/<uuid>`, `https://pubchat.ru/spaces/<uuid>` and `https://pubchat.ru/messenger/<uuid>`. Invalid UUIDs or untrusted domains are ignored. Pending links survive the login screen. Android OS verification of HTTPS App Links is not enabled until the public domain hosts its matching Digital Asset Links statement; otherwise Android may show a chooser.
+## Чек-лист перед beta
 
-## Android Firebase setup (required before push works)
+- Проверить release/debug Firebase, подписку, отзыв и уведомления на Android 8–16 (с учётом поддерживаемых реальных устройств).
+- Проверить входящие/исходящие звонки Android ↔ Android и Android ↔ web, foreground/background/lock screen, разрешения и отказ.
+- Проверить Wi-Fi ↔ LTE, TURN relay, истечение TTL, glare, звук через динамик/наушники/Bluetooth, cleanup foreground service.
+- Проверить E2EE-политику личных сообщений и отсутствие утечек plaintext; дополнить тесты по всем пользовательским сценариям.
+- Проверить HTTPS App Links и необходимые доменные настройки, затем отдельный release gate.
 
-1. Create a Firebase Android app with package `ru.pubchat.app` for release. The debug variant uses `ru.pubchat.app.debug`, so register that variant separately for local testing.
-2. Place `google-services.json` in `app/` locally (never commit it). The Google Services Gradle plugin is activated only when the file is present.
-3. On the PubChat server configure `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL` and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY` (private key with escaped newlines), using the matching Firebase project. Keep these private.
-4. Enable `native_push_messenger` via the existing account notification preference endpoint. Ensure the existing scheduled native-push delivery worker actually runs.
-5. Rebuild/reinstall Android; after login it registers/updates the device FCM token via `POST /notifications/v1/native-push/devices` and revokes registration on logout.
-
-FCM is inactive without Firebase configuration. UI notification center still works without it. Push payloads are generic and never carry private message plaintext. Production delivery must be smoke-tested on a physical device. Android app links require matching domain assetlinks.json separately.
-
-## Android foreground calls (in progress)
-
-Uses a separate ticket-authenticated `/ws/v2/calls` socket with `call_offer`, `call_answer`, `call_ice`, `call_decline`, `call_end`; ICE/TURN settings are read from `/calls/v1/ice-config` with strict relay mode honored. Call media uses native WebRTC DTLS-SRTP, not application-verified E2EE. The present UI covers call setup/incoming consent, mute and hangup while the process is foregrounded. Video track rendering, Android audio routing, background incoming-call wakeup and foreground service/notification integration still require follow-up before production call parity. Never describe this slice as finished calling parity until tested end-to-end between Android and web devices.
-
-## Call audio routing increment
-
-Foreground WebRTC calls acquire transient communication audio focus, switch to MODE_IN_COMMUNICATION and offer speaker/earpiece routing (Android 12+ communication device APIs, legacy speakerphone routing for older devices). Microphone and camera toggles remain available. Call teardown restores audio mode and focus. Bluetooth selection and headset device-change monitoring require real-device verification; do not claim background ringing or Telecom call integration from this change.
-
-**Background calling remains blocked on a server-side call-specific push event with a scoped, short-lived wakeup/offer lookup mechanism.** The existing FCM notification payload is a generic unread-message reminder; it must not be interpreted as an incoming call or carry private SDP/ICE details.
-
-## Active calls in background (foreground-service slice)
-
-An outgoing or accepted call started in the visible Activity now starts an ongoing Android foreground service with microphone/camera service types and a persistent call notification. This helps preserve an ongoing call when the Activity is backgrounded. It does not wake a killed app for incoming calls. Call termination, disconnect and logout stop the service. Android 14+ restrictions mean microphone/camera FGS must start while the app is foregrounded and permissions are already granted. Battery policies and headset routing require physical-device testing.
-
-**Not implemented:** background incoming call push, call offer persistence/claim with expiry, notification answer/decline actions, Telecom integration, cross-device WebRTC smoke. Current WebSocket-only offers cannot be answered after process death; do not treat a generic FCM message as an offer.
-
-## Incoming calls from background (FCM recovery slice)
-
-Call push notifications use a distinct Android notification channel. On opening the app, the call WebSocket connects using a fresh ticket; the app fetches `/calls/v1/pending-offer` and shows a consent-required incoming call dialog if the offer has not expired. SDP remains backend-side and never appears in FCM data. This does **not** implement lock-screen full-screen intents, direct answer/decline buttons, Telecom integration, or reliable process-death delivery guarantees; Android/Firebase provisioning and physical-device tests are required.
-
-## Call signaling recovery
-
-Call signaling retries a new one-time ticket using bounded exponential backoff (up to five retries); old sockets are identity-guarded. An interrupted active call ends safely and releases audio/foreground service: resuming an existing WebRTC peer session after lost signaling is not supported. Transient ICE disconnections show a reconnecting state for at most 12 seconds; persistent loss terminates the call. This protects against orphaned calls but is not ICE restart/re-negotiation; real-device Wi-Fi/LTE handover remains to be tested.
-
-## ICE restart (experimental)
-
-During a transient ICE disconnect the native client attempts renegotiation on the same call ID with an ICE-restart SDP offer. The server relays the `ice_restart` flag without waking FCM, and the web peer can answer it. The existing 12-second timeout remains a safety fallback. Network handover across Wi-Fi/LTE and simultaneous restart glare must still be verified on physical devices. TURN credentials may expire on long calls; refreshing ICE server configuration remains a follow-up.
+Документация основной системы: [обзор мультиклиентной архитектуры](https://github.com/cyrox007/chat/blob/main/docs/client-repositories.md).
