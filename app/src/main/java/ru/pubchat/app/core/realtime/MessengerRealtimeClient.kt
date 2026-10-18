@@ -66,7 +66,7 @@ class MessengerRealtimeClient(
                 if (socket !== webSocket) return
                 stopHeartbeat()
                 socket = null
-                onState("disconnected")
+                onState(if (RealtimeRetryPolicy.terminalHttpStatus(response?.code)) "restricted" else "disconnected")
             }
         })
     }
