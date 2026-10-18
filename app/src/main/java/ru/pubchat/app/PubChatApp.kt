@@ -189,6 +189,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var peopleError by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
     var person by remember { mutableStateOf<PubChatApi.PersonSummary?>(null) }
+    var personRelationship by remember { mutableStateOf<PubChatApi.SocialRelationship?>(null) }
+    var personRelationLoading by remember { mutableStateOf(false) }
+    var personRelationBusy by remember { mutableStateOf(false) }
+    var personRelationError by remember { mutableStateOf<String?>(null) }
     var activeSpace by remember { mutableStateOf<PubChatApi.SpaceSummary?>(null) }
     var showRoomPanel by remember { mutableStateOf(false) }
     var roomReply by remember { mutableStateOf<PubChatApi.ChatMessage?>(null) }
@@ -254,6 +258,35 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             notices = loaded
             noticesError = error
             noticesLoading = false
+        }
+    }
+
+    fun reloadPersonRelationship(accountUid: String) {
+        personRelationLoading = true
+        personRelationError = null
+        controller.loadRelationship(accountUid) { relation, error ->
+            if (person?.accountUid == accountUid) {
+                personRelationship = relation
+                personRelationError = error
+                personRelationLoading = false
+            }
+        }
+    }
+
+    fun applyPersonRelation(
+        action: (String, PubChatApi.SocialRelationship, (PubChatApi.SocialRelationship?, String?) -> Unit) -> Unit,
+    ) {
+        val uid = person?.accountUid ?: return
+        val relation = personRelationship ?: return
+        if (personRelationBusy || personRelationLoading) return
+        personRelationBusy = true
+        personRelationError = null
+        action(uid, relation) { updated, error ->
+            if (person?.accountUid == uid) {
+                personRelationBusy = false
+                if (updated != null) personRelationship = updated
+                else personRelationError = error ?: "Не удалось обновить связь"
+            }
         }
     }
 
@@ -547,8 +580,14 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             when (section) {
                 AppSection.SPACES -> SpacesContent(state, controller, onState, ::openSpace)
                 AppSection.PEOPLE -> PeopleContent(people, peopleLoading, peopleError, search, { search = it }, ::loadPeople) { selected ->
+                    personRelationship = null
+                    personRelationError = null
                     controller.loadProfile(selected.accountUid) { loaded, error ->
-                        if (loaded != null) { person = loaded; section = AppSection.PERSON } else peopleError = error
+                        if (loaded != null) {
+                            person = loaded
+                            section = AppSection.PERSON
+                            reloadPersonRelationship(loaded.accountUid)
+                        } else peopleError = error
                     }
                 }
                 AppSection.MESSENGER -> MessengerListContent(dialogs, dialogsLoading, messengerError, onlineStatuses, ::openDialog) { loadDialogsAndConnect() }
@@ -561,10 +600,31 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     }
                 }
                 AppSection.PROFILE -> ru.pubchat.app.ui.components.ProfilePanel(state, controller, onState)
-                AppSection.PERSON -> PersonContent(person) { target ->
-                    val synthetic = PubChatApi.DialogSummary(target.accountUid, target.displayName, target.handle, target.avatar, null, null, 0)
-                    loadDialogsAndConnect(target.accountUid, synthetic)
-                }
+                AppSection.PERSON -> PersonContent(
+                    person = person,
+                    relationship = personRelationship,
+                    loading = personRelationLoading,
+                    busy = personRelationBusy,
+                    error = personRelationError,
+                    onReload = { person?.accountUid?.let(::reloadPersonRelationship) },
+                    onFollow = {
+                        applyPersonRelation { uid, relation, done ->
+                            controller.setFollowing(uid, relation.following, done)
+                        }
+                    },
+                    onFriendAction = { action ->
+                        applyPersonRelation { uid, _, done -> controller.friendAction(uid, action, done) }
+                    },
+                    onBlock = {
+                        applyPersonRelation { uid, relation, done ->
+                            controller.setBlocked(uid, relation.blockedByMe, done)
+                        }
+                    },
+                    onMessage = { target ->
+                        val synthetic = PubChatApi.DialogSummary(target.accountUid, target.displayName, target.handle, target.avatar, null, null, 0)
+                        loadDialogsAndConnect(target.accountUid, synthetic)
+                    },
+                )
                 AppSection.SPACE -> SpaceChatContent(activeSpace, messages, state.accountUid, connection, chatError, draft, { draft = it },
                     reply = roomReply, sending = roomReplySending,
                     onReply = { roomReply = it }, onCancelReply = { roomReply = null },
