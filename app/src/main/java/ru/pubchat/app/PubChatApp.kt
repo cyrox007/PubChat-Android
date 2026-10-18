@@ -1,5 +1,7 @@
 package ru.pubchat.app
 
+import ru.pubchat.app.core.calls.shouldShowCallDialog
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
@@ -359,7 +361,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         }
     }
 
-    if (callPhase !in listOf("idle", "ended")) {
+    if (shouldShowCallDialog(callPhase, callPeer)) {
         AlertDialog(
             onDismissRequest = { if (callPhase == "error" || callPhase == "disconnected") { controller.endCall(); callPhase = "idle" } },
             title = { Text(if (callMode == "video") "Видеозвонок PubChat" else "Голосовой звонок PubChat") },
