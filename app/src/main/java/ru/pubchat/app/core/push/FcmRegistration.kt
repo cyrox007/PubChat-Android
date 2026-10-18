@@ -1,6 +1,10 @@
 package ru.pubchat.app.core.push
 
 import android.content.Context
+import android.Manifest
+import android.os.Build
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import ru.pubchat.app.core.network.PubChatApi
@@ -32,7 +36,12 @@ object FcmRegistration {
                 accessToken = { session.accessToken() },
                 refreshCookie = { session.refreshCookie() },
             )
-            runCatching { api.registerNativePush(session.deviceUid, token) }
+            runCatching {
+                api.registerNativePush(session.deviceUid, token)
+                val permissionGranted = Build.VERSION.SDK_INT < 33 ||
+                    ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                if (permissionGranted) api.enableNativePushMessages()
+            }
         }
     }
 
