@@ -54,6 +54,29 @@ class PubChatApi(
         val socialIntent: String?,
     )
 
+    data class SocialRelationship(
+        val accountUid: String,
+        val following: Boolean,
+        val followedBy: Boolean,
+        val friends: Boolean,
+        val friendRequest: String?,
+        val blockedByMe: Boolean,
+        val blockedMe: Boolean,
+    ) {
+        val canInteract: Boolean get() = !blockedByMe && !blockedMe
+        val friendAction: String get() = when {
+            friends || friendRequest == "outgoing" -> "remove"
+            friendRequest == "incoming" -> "accept"
+            else -> "request"
+        }
+        val friendActionTitle: String get() = when {
+            friends -> "Удалить из друзей"
+            friendRequest == "incoming" -> "Принять запрос"
+            friendRequest == "outgoing" -> "Отменить запрос"
+            else -> "Предложить дружбу"
+        }
+    }
+
     data class ChatMessage(
         val uid: String,
         val content: String,
@@ -217,6 +240,39 @@ class PubChatApi(
     fun publicProfile(accountUid: String): PersonSummary {
         val item = JSONObject(request("GET", "/identity/v2/profiles/$accountUid").body).getJSONObject("profile")
         return parsePerson(item, accountUid)
+    }
+
+    fun relationship(accountUid: String): SocialRelationship =
+        parseRelationship(request("GET", "/social/v1/relationships/$accountUid").body)
+
+    fun setFollowing(accountUid: String, currentlyFollowing: Boolean): SocialRelationship =
+        parseRelationship(request(
+            if (currentlyFollowing) "DELETE" else "POST",
+            "/social/v1/follows/$accountUid"
+        ).body)
+
+    fun friendAction(accountUid: String, action: String): SocialRelationship =
+        parseRelationship(request(
+            "PATCH", "/social/v1/friends/$accountUid", JSONObject().put("action", action)
+        ).body)
+
+    fun setBlocked(accountUid: String, currentlyBlocked: Boolean): SocialRelationship =
+        parseRelationship(request(
+            if (currentlyBlocked) "DELETE" else "POST",
+            "/social/v1/blocks/$accountUid"
+        ).body)
+
+    private fun parseRelationship(body: String): SocialRelationship {
+        val relation = JSONObject(body).getJSONObject("relationship")
+        return SocialRelationship(
+            accountUid = relation.getString("account_uid"),
+            following = relation.getBoolean("following"),
+            followedBy = relation.getBoolean("followed_by"),
+            friends = relation.getBoolean("friends"),
+            friendRequest = relation.optNullableString("friend_request"),
+            blockedByMe = relation.getBoolean("blocked_by_me"),
+            blockedMe = relation.getBoolean("blocked_me"),
+        )
     }
 
     fun dialogs(): List<DialogSummary> {
