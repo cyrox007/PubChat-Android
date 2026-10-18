@@ -263,8 +263,18 @@ class AppController(context: Context) {
         api.deletePrivateMessage(messageUid)
     }
 
-    fun replyPrivateMessage(messageUid: String, content: String, onDone: (String?) -> Unit) = messengerAction(onDone) {
-        api.replyPrivateMessage(messageUid, content)
+    fun replyPrivateMessage(
+        messageUid: String, content: String,
+        onDone: (PubChatApi.ChatMessage?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                val persisted = authenticated { api.replyPrivateMessage(messageUid, content) }
+                parseChatMessage(persisted)
+                    ?: throw IllegalStateException("Сервер не вернул корректное сообщение")
+            }.onSuccess { message -> main.post { onDone(message, null) } }
+                .onFailure { error -> main.post { onDone(null, humanMessage(error)) } }
+        }
     }
 
     fun reactPrivateMessage(messageUid: String, emoji: String, onDone: (String?) -> Unit) = messengerAction(onDone) {
