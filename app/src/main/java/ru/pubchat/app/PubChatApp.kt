@@ -593,7 +593,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     TextButton(onClick = {
                         when (section) {
                             AppSection.SPACE -> { controller.closeSpace(); section = AppSection.SPACES }
-                            AppSection.PERSON -> section = personReturnSection
+                            AppSection.PERSON -> { section = personReturnSection; if (section == AppSection.FRIENDSHIPS) loadFriendships() }
                             AppSection.FRIENDSHIPS -> section = AppSection.PEOPLE
                             AppSection.MESSENGER_CHAT -> { activeDialog = null; section = AppSection.MESSENGER }
                             else -> Unit
