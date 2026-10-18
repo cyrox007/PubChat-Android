@@ -52,7 +52,7 @@ import ru.pubchat.app.core.network.PubChatApi
 enum class AppSection { SPACES, PEOPLE, MESSENGER, PROFILE, PERSON, SPACE, MESSENGER_CHAT, NOTIFICATIONS }
 
 @Composable
-fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onDeepLinkConsumed: () -> Unit = {}) {
+fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onDeepLinkConsumed: () -> Unit = {}, incomingAction: IncomingCallAction? = null, onCallActionConsumed: () -> Unit = {}) {
     var state by remember { mutableStateOf<AppState>(AppState.Booting) }
     LaunchedEffect(controller) { controller.bootstrap { state = it } }
     DisposableEffect(controller) { onDispose { controller.close() } }
@@ -64,7 +64,7 @@ fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onD
             onLogin = { identifier, password -> controller.login(identifier, password) { state = it } },
             onRegister = { handle, name, email, password, intent -> controller.register(handle, name, email, password, intent) { state = it } },
         )
-        is AppState.SignedIn -> AuthenticatedShell(current, controller, deepLink, onDeepLinkConsumed) { state = it }
+        is AppState.SignedIn -> AuthenticatedShell(current, controller, deepLink, onDeepLinkConsumed, incomingAction, onCallActionConsumed) { state = it }
     }
 }
 
@@ -150,7 +150,7 @@ private fun AuthScreen(
 }
 
 @Composable
-private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppController, deepLink: PubChatDeepLink?, onDeepLinkConsumed: () -> Unit, onState: (AppState) -> Unit) {
+private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppController, deepLink: PubChatDeepLink?, onDeepLinkConsumed: () -> Unit, incomingAction: IncomingCallAction?, onCallActionConsumed: () -> Unit, onState: (AppState) -> Unit) {
     var section by remember { mutableStateOf(AppSection.SPACES) }
     var people by remember { mutableStateOf<List<PubChatApi.PersonSummary>>(emptyList()) }
     var peopleLoading by remember { mutableStateOf(false) }
@@ -327,6 +327,30 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             return false
         }
         return true
+    }
+
+    LaunchedEffect(incomingAction, callPhase, callPeer) {
+        val pending = incomingAction ?: return@LaunchedEffect
+        if (callPhase != "incoming") return@LaunchedEffect
+        // The app has fetched a fresh, authenticated offer via its calls API.
+        // A stale notification for another call is never acted on.
+        if (!controller.isPendingCall(pending.callUid)) {
+            onCallActionConsumed()
+            return@LaunchedEffect
+        }
+        when (pending.kind) {
+            "decline" -> { controller.endCall(decline = true); onCallActionConsumed() }
+            "answer" -> {
+                if (hasCallPermissions(callMode == "video")) {
+                    controller.acceptCall()
+                    onCallActionConsumed()
+                } else {
+                    // No microphone/camera activation from background.
+                    // Leave UI visible for the user to approve permissions.
+                    onCallActionConsumed()
+                }
+            }
+        }
     }
 
     if (callPhase !in listOf("idle", "ended")) {
