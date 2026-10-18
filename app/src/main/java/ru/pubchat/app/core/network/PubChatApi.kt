@@ -255,8 +255,12 @@ class PubChatApi(
         request("DELETE", "/messages/v2/messenger/$messageUid")
     }
 
-    fun replyPrivateMessage(messageUid: String, content: String) {
-        request("POST", "/messages/v2/messenger/$messageUid/reply", JSONObject().put("content", content.trim()))
+    fun replyPrivateMessage(messageUid: String, content: String): JSONObject {
+        val response = request("POST", "/messages/v2/messenger/$messageUid/reply",
+            JSONObject().put("content", content.trim()))
+        // The server returns the persisted message in the 201 response.
+        // Do not rely only on realtime delivery for the sender's own echo.
+        return JSONObject(response.body).getJSONObject("message")
     }
 
     fun reactPrivateMessage(messageUid: String, emoji: String) {
