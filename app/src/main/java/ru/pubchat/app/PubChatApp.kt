@@ -3,6 +3,7 @@ package ru.pubchat.app
 import ru.pubchat.app.core.calls.shouldShowCallDialog
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
 import android.app.Activity
@@ -26,10 +27,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -55,8 +59,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.ui.components.RoomMessageCard
+import ru.pubchat.app.ui.components.RoomControlPanel
 
 enum class AppSection { SPACES, PEOPLE, MESSENGER, PROFILE, PERSON, SPACE, MESSENGER_CHAT, NOTIFICATIONS }
 
@@ -168,6 +188,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var search by remember { mutableStateOf("") }
     var person by remember { mutableStateOf<PubChatApi.PersonSummary?>(null) }
     var activeSpace by remember { mutableStateOf<PubChatApi.SpaceSummary?>(null) }
+    var showRoomPanel by remember { mutableStateOf(false) }
+    var roomReply by remember { mutableStateOf<PubChatApi.ChatMessage?>(null) }
+    var roomReplySending by remember { mutableStateOf(false) }
     var messages by remember { mutableStateOf<List<PubChatApi.ChatMessage>>(emptyList()) }
     var connection by remember { mutableStateOf("idle") }
     var chatError by remember { mutableStateOf<String?>(null) }
@@ -235,6 +258,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     }
 
     fun openSpace(space: PubChatApi.SpaceSummary) {
+        roomReply = null
+        showRoomPanel = false
         controller.closeMessenger()
         section = AppSection.SPACE
         activeSpace = space
@@ -431,14 +456,25 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         )
     }
 
+    BackHandler(enabled = section == AppSection.SPACE && !showRoomPanel) {
+        controller.closeSpace(); section = AppSection.SPACES
+    }
+    if (showRoomPanel) activeSpace?.let { space ->
+        RoomControlPanel(space, state.accountUid, controller,
+            onClose = { showRoomPanel = false },
+            onChanged = { activeSpace = it },
+            onLeft = { showRoomPanel = false; controller.closeSpace(); activeSpace = null; section = AppSection.SPACES; controller.reload(state, onState) })
+    }
+
     Scaffold(
         topBar = {
             Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().statusBarsPadding().background(MaterialTheme.colorScheme.surface).padding(horizontal = 8.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column(Modifier.weight(1f)) {
+                if (section == AppSection.SPACE) IconButton(onClick = { controller.closeSpace(); section = AppSection.SPACES }, modifier = Modifier.size(40.dp).semantics { contentDescription = "К списку пространств" }) { Text("‹", fontSize = 30.sp) }
+                Column(Modifier.weight(1f).let { if (section == AppSection.SPACE) it.clickable { showRoomPanel = true } else it }) {
                     Text(
                         when (section) {
                             AppSection.SPACES -> "Пространства"
@@ -450,16 +486,19 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             AppSection.SPACE -> activeSpace?.name ?: "Пространство"
                             AppSection.MESSENGER_CHAT -> activeDialog?.displayName ?: "Разговор"
                         },
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     when (section) {
-                        AppSection.SPACE -> Text(connectionLabel(connection), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        AppSection.SPACE -> Text("● ${connectionLabel(connection)}", fontSize = 10.sp, color = if (connection == "connected") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
                         AppSection.MESSENGER, AppSection.MESSENGER_CHAT -> Text(connectionLabel(messengerConnection), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         else -> Text("@${state.handle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (section == AppSection.SPACE || section == AppSection.PERSON || section == AppSection.MESSENGER_CHAT) {
+                if (section == AppSection.SPACE) {
+                    TextButton(onClick = { showRoomPanel = true }, enabled = activeSpace != null, contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.height(38.dp)) { Text("О комнате", fontSize = 12.sp) }
+                }
+                if (section == AppSection.PERSON || section == AppSection.MESSENGER_CHAT) {
                     TextButton(onClick = {
                         when (section) {
                             AppSection.SPACE -> { controller.closeSpace(); section = AppSection.SPACES }
@@ -467,7 +506,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             AppSection.MESSENGER_CHAT -> { activeDialog = null; section = AppSection.MESSENGER }
                             else -> Unit
                         }
-                    }) { Text("Назад") }
+                    }) { Text(if (section == AppSection.SPACE) "← Пространства" else "Назад") }
                 } else if (section == AppSection.PROFILE) {
                     TextButton(onClick = { controller.logout(onState) }) { Text("Выйти") }
                 }
@@ -475,7 +514,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         },
         bottomBar = {
             if (section !in listOf(AppSection.SPACE, AppSection.PERSON, AppSection.MESSENGER_CHAT)) {
-                NavigationBar(modifier = Modifier.navigationBarsPadding(), containerColor = MaterialTheme.colorScheme.surface) {
+                NavigationBar( containerColor = MaterialTheme.colorScheme.surface) {
                     NavigationBarItem(selected = section == AppSection.SPACES,
                         onClick = { controller.closeMessenger(); section = AppSection.SPACES },
                         icon = { Text("▦") }, label = { Text("Места") })
@@ -495,7 +534,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             when (section) {
                 AppSection.SPACES -> SpacesContent(state, controller, onState, ::openSpace)
                 AppSection.PEOPLE -> PeopleContent(people, peopleLoading, peopleError, search, { search = it }, ::loadPeople) { selected ->
@@ -517,11 +556,22 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     val synthetic = PubChatApi.DialogSummary(target.accountUid, target.displayName, target.handle, target.avatar, null, null, 0)
                     loadDialogsAndConnect(target.accountUid, synthetic)
                 }
-                AppSection.SPACE -> SpaceChatContent(activeSpace, messages, connection, chatError, draft, { draft = it }, { uri ->
-                    controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error }
-                }) {
-                    if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) draft = "" else chatError = "Соединение ещё не готово"
-                }
+                AppSection.SPACE -> SpaceChatContent(activeSpace, messages, state.accountUid, connection, chatError, draft, { draft = it },
+                    reply = roomReply, sending = roomReplySending,
+                    onReply = { roomReply = it }, onCancelReply = { roomReply = null },
+                    onAttach = { uri -> controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error } },
+                    onSend = send@{
+                        if (roomReplySending) return@send
+                        val source = roomReply
+                        if (source != null && activeSpace != null) {
+                            roomReplySending = true
+                            controller.spaceAction(activeSpace!!.uid, "reply", source.uid, draft) { error ->
+                                roomReplySending = false; chatError = error
+                                if (error == null) { draft = ""; roomReply = null }
+                            }
+                        } else if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) draft = ""
+                        else chatError = "Соединение ещё не готово"
+                    })
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
                     onCall = { video ->
                         val peer = activeDialog?.partnerUid
@@ -642,12 +692,14 @@ private fun MessengerListContent(dialogs: List<PubChatApi.DialogSummary>, loadin
 
 @Composable
 private fun ProfileContent(state: AppState.SignedIn) {
+    val theme = ru.pubchat.app.ui.theme.LocalThemeControl.current
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(state.displayName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("@${state.handle}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         state.bio?.let { Text(it) }
         state.socialIntent?.let { Text("Намерение: ${intentLabel(it)}", color = MaterialTheme.colorScheme.primary) }
         Text("Устройство Android зарегистрировано отдельной сессией PubChat.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = theme.toggle) { Text(if (theme.dark) "Включить светлую тему" else "Включить тёмную тему") }
     }
 }
 
@@ -667,20 +719,45 @@ private fun PersonContent(person: PubChatApi.PersonSummary?, onMessage: (PubChat
 }
 
 @Composable
-private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<PubChatApi.ChatMessage>, connection: String, error: String?, draft: String, onDraft: (String) -> Unit, onAttach: (android.net.Uri) -> Unit, onSend: () -> Unit) {
+private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<PubChatApi.ChatMessage>, currentAccountUid: String, connection: String, error: String?, draft: String, onDraft: (String) -> Unit,
+    reply: PubChatApi.ChatMessage?, sending: Boolean, onReply: (PubChatApi.ChatMessage) -> Unit, onCancelReply: () -> Unit,
+    onAttach: (android.net.Uri) -> Unit, onSend: () -> Unit) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var initialScroll by remember(space?.uid) { mutableStateOf(false) }
+    LaunchedEffect(space?.uid, messages.lastOrNull()?.uid) {
+        if (messages.isNotEmpty()) {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (!initialScroll || lastVisible >= messages.size - 3) {
+                listState.scrollToItem(messages.lastIndex); initialScroll = true
+            }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
-        space?.description?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        space?.description?.let { Text(it, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), fontSize = 11.sp, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         error?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Здесь пока тихо. Начните разговор." else "Подключаем разговор…") }
-            items(messages, key = PubChatApi.ChatMessage::uid) { message -> MessageCard(message, false, null) }
+            items(messages, key = PubChatApi.ChatMessage::uid) { message ->
+                val source = messages.find { it.uid == message.replyToUid }
+                RoomMessageCard(message, message.senderUid == currentAccountUid, source,
+                    onReplyJump = source?.let { { scope.launch { listState.animateScrollToItem(messages.indexOf(it)) }; Unit } },
+                    onReply = if (message.contentType != "deleted") { { onReply(message) } } else null)
+            }
         }
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) onAttach(uri)
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected") { Text("＋", style = MaterialTheme.typography.titleLarge) }
-            Box(Modifier.weight(1f)) { Composer(draft, onDraft, connection == "connected", onSend) }
+        if (reply != null) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("↪ Ответ: ${reply.senderName ?: "Участник"}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                Text(reply.content.ifBlank { reply.attachmentName ?: "Вложение" }, maxLines = 2, style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = onCancelReply, enabled = !sending) { Text("Отмена") }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            IconButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected" && reply == null && !sending, modifier = Modifier.size(40.dp).semantics { contentDescription = "Прикрепить файл" }) { Text("＋", fontSize = 23.sp) }
+            Box(Modifier.weight(1f)) { Composer(draft, onDraft, connection == "connected" && !sending, onSend, padded = false) }
         }
     }
 }
@@ -715,7 +792,7 @@ private fun MessengerChatContent(
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Можно начать с простого «привет»." else "Загружаем личный разговор…") }
             items(messages, key = PubChatApi.ChatMessage::uid) { message ->
                 Column {
-                    MessageCard(message, message.senderUid == currentAccountUid, if (selectedUid == message.uid) { { onSelect(message.uid) } } else { { onSelect(message.uid) } })
+                    RoomMessageCard(message, message.senderUid == currentAccountUid, messages.find { it.uid == message.replyToUid }, onSelect = { onSelect(message.uid) })
                     if (selectedUid == message.uid) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { onActionMode("reply") }) { Text("Ответ") }
@@ -770,20 +847,24 @@ private fun MessageCard(message: PubChatApi.ChatMessage, own: Boolean, onClick: 
 }
 
 @Composable
-private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean, onSend: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
+private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean, onSend: () -> Unit, padded: Boolean = true) {
+    Row(Modifier.fillMaxWidth().then(if (padded) Modifier.padding(horizontal = 8.dp, vertical = 5.dp) else Modifier),
+        verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        BasicTextField(
             value = draft,
             onValueChange = onDraft,
-            modifier = Modifier.weight(1f),
-            placeholder = { Text(if (enabled) "Написать сообщение…" else "Ожидаем соединение…") },
-            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp)).heightIn(min = 40.dp, max = 120.dp).padding(horizontal = 12.dp, vertical = 9.dp),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp),
+            decorationBox = { field -> Box { if (draft.isEmpty()) Text(if (enabled) "Сообщение…" else "Соединение…", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); field() } },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { if (enabled && draft.isNotBlank()) onSend() }),
             maxLines = 5,
             enabled = enabled,
         )
-        Button(onClick = onSend, enabled = enabled && draft.isNotBlank(),
-            shape = RoundedCornerShape(20.dp)) { Text("➤") }
+        IconButton(onClick = onSend, enabled = enabled && draft.isNotBlank(), modifier = Modifier.size(40.dp).clip(RoundedCornerShape(20.dp))
+            .background(if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+            .semantics { contentDescription = "Отправить сообщение" }) { Text("↑", fontSize = 23.sp, color = if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 

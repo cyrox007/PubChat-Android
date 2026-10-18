@@ -1,26 +1,36 @@
 package ru.pubchat.app.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 
 // Keep these colors aligned with frontend/src/assets/main.css in cyrox007/PubChat.
 // Disable wallpaper-derived Material You colors so the brand stays consistent.
 private val light = lightColorScheme(
     primary = Color(0xFF8C2F67),
+    tertiary = Color(0xFF287A57),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFF7E8F0),
-    onPrimaryContainer = Color(0xFF5F1F45),
+    secondaryContainer = Color(0xFFF7E8F0),
+    onSecondaryContainer = Color(0xFF5F1F45),
+    onPrimaryContainer = Color(0xFF272321),
     secondary = Color(0xFF6F6863),
     onSecondary = Color.White,
     background = Color(0xFFF6F4F1),
     onBackground = Color(0xFF272321),
     surface = Color.White,
     onSurface = Color(0xFF272321),
-    surfaceVariant = Color(0xFFEFEAE6),
+    surfaceVariant = Color(0xFFEFEBE7),
     onSurfaceVariant = Color(0xFF6F6863),
     outline = Color(0xFFCFC6BF),
     outlineVariant = Color(0xFFE2DCD6),
@@ -29,9 +39,12 @@ private val light = lightColorScheme(
 )
 private val dark = darkColorScheme(
     primary = Color(0xFFE07BAD),
-    onPrimary = Color(0xFF24151E),
+    tertiary = Color(0xFF78C9A3),
+    onPrimary = Color(0xFF211019),
     primaryContainer = Color(0xFF402536),
-    onPrimaryContainer = Color(0xFFF5DAE8),
+    secondaryContainer = Color(0xFF402536),
+    onSecondaryContainer = Color(0xFFF5DAE8),
+    onPrimaryContainer = Color(0xFFF3EFEC),
     secondary = Color(0xFFB9B1AB),
     onSecondary = Color(0xFF161718),
     background = Color(0xFF161718),
@@ -46,14 +59,34 @@ private val dark = darkColorScheme(
     onError = Color(0xFF251314),
 )
 
+data class ThemeControl(val dark: Boolean, val toggle: () -> Unit)
+val LocalThemeControl = staticCompositionLocalOf { ThemeControl(true) {} }
+
 @Composable
 fun PubChatTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean? = null,
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) dark else light,
+    val context = LocalContext.current
+    val preferences = remember { context.getSharedPreferences("pubchat_appearance", android.content.Context.MODE_PRIVATE) }
+    var preferDark by remember { mutableStateOf(preferences.getBoolean("dark_theme", true)) }
+    val useDark = darkTheme ?: preferDark
+    SideEffect {
+        (context as? android.app.Activity)?.let { activity ->
+            androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
+                isAppearanceLightStatusBars = !useDark
+                isAppearanceLightNavigationBars = !useDark
+            }
+        }
+    }
+    CompositionLocalProvider(LocalThemeControl provides ThemeControl(useDark) {
+        preferDark = !useDark
+        preferences.edit().putBoolean("dark_theme", preferDark).apply()
+    }) {
+      MaterialTheme(
+        colorScheme = if (useDark) dark else light,
         typography = Typography,
         content = content,
     )
+    }
 }

@@ -33,6 +33,9 @@ class PubChatApi(
         val membershipStatus: String?,
         val membershipRole: String?,
         val ownerUid: String?,
+        val canManage: Boolean = false,
+        val memberCount: Int = 0,
+        val memberLimit: Int = 250,
     ) {
         val isActiveMember: Boolean
             get() = membershipStatus == "active" || membershipRole == "owner"
@@ -61,7 +64,13 @@ class PubChatApi(
         val reactions: String? = null,
         val replyToUid: String? = null,
         val attachmentName: String? = null,
+        val senderAvatar: String? = null,
+        val replyContent: String? = null,
+        val replySenderName: String? = null,
+        val attachments: List<Attachment> = emptyList(),
     )
+
+    data class Attachment(val url: String, val name: String, val mimeType: String?)
 
     data class DialogSummary(
         val partnerUid: String,
@@ -123,6 +132,58 @@ class PubChatApi(
     fun joinSpace(uid: String): SpaceSummary {
         val json = JSONObject(request("POST", "/spaces/v1/$uid/join").body).getJSONObject("space")
         return parseSpace(json)
+    }
+
+    fun leaveSpace(uid: String) { request("DELETE", "/spaces/v1/$uid/membership") }
+
+    fun spacePanelItems(uid: String, section: String): List<JSONObject> {
+        val (path, key) = when (section) {
+            "people" -> "/spaces/v1/$uid/members?status=active&limit=100" to "members"
+            "requests" -> "/spaces/v1/$uid/members?status=pending&limit=100" to "members"
+            "rules" -> "/spaces/v1/$uid/rules" to "rules"
+            "events" -> "/spaces/v1/$uid/events?limit=100" to "events"
+            "reports" -> "/moderation/v1/spaces/$uid/reports?limit=100" to "reports"
+            else -> return emptyList()
+        }
+        val array = JSONObject(request("GET", path).body).optJSONArray(key) ?: JSONArray()
+        return buildList { for (index in 0 until array.length()) array.optJSONObject(index)?.let(::add) }
+    }
+
+    fun updateSpace(uid: String, name: String, description: String) {
+        request("PATCH", "/spaces/v1/$uid", JSONObject().put("name", name.trim()).put("description", description.trim()))
+    }
+
+    fun manageSpaceMember(uid: String, memberUid: String, action: String) {
+        if (action in setOf("member", "moderator")) request("PATCH", "/spaces/v1/$uid/members/$memberUid", JSONObject().put("role", action))
+        else request("PATCH", "/spaces/v1/$uid/members/$memberUid/membership", JSONObject().put("action", action))
+    }
+
+    fun addSpaceRule(uid: String, title: String, body: String) {
+        request("POST", "/spaces/v1/$uid/rules", JSONObject().put("title", title.trim()).put("body", body.trim()).put("position", 0))
+    }
+
+    fun deleteSpaceRule(uid: String, ruleUid: String) { request("DELETE", "/spaces/v1/$uid/rules/$ruleUid") }
+
+    fun addSpaceEvent(uid: String, title: String, description: String, startsAt: String) {
+        request("POST", "/spaces/v1/$uid/events", JSONObject().put("title", title.trim()).put("description", description.trim()).put("starts_at", startsAt))
+    }
+
+    fun cancelSpaceEvent(uid: String, eventUid: String) {
+        request("PATCH", "/spaces/v1/$uid/events/$eventUid", JSONObject().put("status", "cancelled"))
+    }
+
+    fun updateSpaceReport(uid: String, reportUid: String, status: String) {
+        request("PATCH", "/moderation/v1/spaces/$uid/reports/$reportUid", JSONObject().put("status", status))
+    }
+
+    fun moderateSpaceMember(uid: String, memberUid: String, action: String, reason: String) {
+        val body = JSONObject().put("target_account_uid", memberUid).put("action_type", action).put("reason", reason.trim())
+        if (action == "restrict") body.put("duration_minutes", 1440)
+        request("POST", "/moderation/v1/spaces/$uid/actions", body)
+    }
+
+    fun replySpaceMessage(messageUid: String, content: String) {
+        request("POST", "/messages/v2/room/$messageUid/reply", JSONObject().put("content", content.trim()))
     }
 
     fun people(query: String = ""): List<PersonSummary> {
@@ -324,6 +385,9 @@ class PubChatApi(
             membershipStatus = membership?.optNullableString("status"),
             membershipRole = membership?.optNullableString("role"),
             ownerUid = space.optNullableString("owner_uid"),
+            canManage = space.optBoolean("can_manage", false),
+            memberCount = space.optInt("member_count", 0),
+            memberLimit = space.optInt("member_limit", 250),
         )
     }
 
