@@ -80,16 +80,21 @@ jobs:
           from pathlib import Path
           import xml.etree.ElementTree as ET
 
-          for variant, index in [("debug", 2), ("release", 1)]:
-              resources = list(Path(f"app/build/generated/res/google-services/{variant}").rglob("values.xml"))
-              assert resources, f"Missing generated Firebase resources for {variant}"
-              values = {
+          # AGP chooses the task output directory; inspect the generated XML.
+          resources = list(Path("app/build/generated/res").rglob("values.xml"))
+          values = [
+              {
                   item.attrib.get("name"): item.text
-                  for path in resources
                   for item in ET.parse(path).getroot()
               }
-              assert values["google_app_id"] == f"1:123456789012:android:{index:016x}"
-              assert values["project_id"] == "pubchat-ci-placeholder"
+              for path in resources
+          ]
+          for variant, index in [("debug", 2), ("release", 1)]:
+              assert any(
+                  item.get("google_app_id") == f"1:123456789012:android:{index:016x}"
+                  and item.get("project_id") == "pubchat-ci-placeholder"
+                  for item in values
+              ), f"Missing or incorrect Firebase resources for {variant}: {resources}"
           PY
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
