@@ -74,8 +74,21 @@ jobs:
         if: matrix.firebase == 'enabled'
         run: |
           ./gradlew :app:processDebugGoogleServices :app:processReleaseGoogleServices --stacktrace
-          grep -q '1:123456789012:android:0000000000000002' app/build/generated/res/google-services/debug/values/values.xml
-          grep -q '1:123456789012:android:0000000000000001' app/build/generated/res/google-services/release/values/values.xml
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          for variant, index in [("debug", 2), ("release", 1)]:
+              resources = list(Path(f"app/build/generated/res/google-services/{variant}").rglob("values.xml"))
+              assert resources, f"Missing generated Firebase resources for {variant}"
+              values = {
+                  item.attrib.get("name"): item.text
+                  for path in resources
+                  for item in ET.parse(path).getroot()
+              }
+              assert values["google_app_id"] == f"1:123456789012:android:{index:016x}"
+              assert values["project_id"] == "pubchat-ci-placeholder"
+          PY
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
       - name: Android lint
