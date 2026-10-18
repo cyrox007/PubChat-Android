@@ -300,6 +300,44 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         }
     }
 
+    fun loadFriendships(append: Boolean = false) {
+        if (append && (friendshipLoading || friendshipLoadingMore)) return
+        val selected = friendshipTab
+        val generation = ++friendshipGeneration
+        if (append) friendshipLoadingMore = true else {
+            friendshipLoading = true
+            friendshipRows = emptyList()
+            friendshipTotal = 0
+            friendshipError = null
+        }
+        val offset = if (append) friendshipRows.size else 0
+        controller.loadFriendships(selected, offset) { page, error ->
+            if (generation == friendshipGeneration && selected == friendshipTab) {
+                friendshipLoading = false
+                friendshipLoadingMore = false
+                if (page != null) {
+                    friendshipRows = if (append) {
+                        val known = friendshipRows.map { it.accountUid }.toSet()
+                        friendshipRows + page.rows.filterNot { it.accountUid in known }
+                    } else page.rows
+                    friendshipTotal = page.total
+                    friendshipError = null
+                } else friendshipError = error ?: "Не удалось загрузить список"
+            }
+        }
+    }
+
+    fun friendshipAction(accountUid: String, action: String) {
+        if (friendshipBusyUid != null) return
+        friendshipBusyUid = accountUid
+        friendshipError = null
+        controller.friendAction(accountUid, action) { relationship, error ->
+            friendshipBusyUid = null
+            if (relationship != null && error == null) loadFriendships()
+            else friendshipError = error ?: "Не удалось обработать заявку"
+        }
+    }
+
     fun loadPeople() {
         peopleLoading = true
         controller.loadPeople(search) { result, error ->
