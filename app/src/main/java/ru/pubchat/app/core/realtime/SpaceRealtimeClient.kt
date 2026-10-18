@@ -6,6 +6,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import org.json.JSONArray
 import ru.pubchat.app.BuildConfig
 import ru.pubchat.app.core.network.PubChatApi
 import java.util.concurrent.TimeUnit
@@ -68,6 +69,32 @@ class SpaceRealtimeClient(
                     .put("name", displayName)
             )
         return active.send(payload.toString())
+    }
+
+    fun sendAttachment(
+        content: String,
+        accountUid: String,
+        displayName: String,
+        fileName: String,
+        mimeType: String,
+        size: Int,
+        dataUrl: String,
+    ): Boolean {
+        val kind = when {
+            mimeType.startsWith("image/") -> "image"
+            mimeType.startsWith("video/") -> "video"
+            mimeType.startsWith("audio/") -> "audio"
+            else -> "file"
+        }
+        val file = JSONObject().put("name", fileName).put("type", mimeType)
+            .put("size", size).put("url", dataUrl)
+        val frame = JSONObject()
+            .put("frontId", java.util.UUID.randomUUID().toString())
+            .put("content", content)
+            .put("content_type", kind)
+            .put("media_metadata", JSONObject().put("files", JSONArray().put(file)))
+            .put("sender", JSONObject().put("uid", accountUid).put("name", displayName))
+        return socket?.send(frame.toString()) == true
     }
 
     fun close() {
