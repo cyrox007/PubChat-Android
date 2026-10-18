@@ -3,6 +3,7 @@ package ru.pubchat.app
 import android.content.Context
 import ru.pubchat.app.core.calls.CallSignaling
 import ru.pubchat.app.core.calls.NativeCallEngine
+import ru.pubchat.app.core.calls.CallAudioRouter
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -45,6 +46,7 @@ class AppController(context: Context) {
     private var realtime: SpaceRealtimeClient? = null
     private var callSocket: CallSignaling? = null
     private var callEngine: NativeCallEngine? = null
+    private val callAudio = CallAudioRouter(appContext)
     private var offerPending: JSONObject? = null
     private var callStatusCallback: ((String, String?, String) -> Unit)? = null
     private var messengerRealtime: MessengerRealtimeClient? = null
@@ -329,6 +331,7 @@ class AppController(context: Context) {
                         onStatus = { status -> main.post {
                             if (status == "disconnected") {
                                 callEngine?.end(false)
+                                callAudio.release()
                                 callStatusCallback?.invoke("disconnected", null, "audio")
                                 callSocket?.destroy()
                                 callSocket = null
@@ -368,6 +371,7 @@ class AppController(context: Context) {
                     "call_decline", "call_end" -> if (uid == callEngine?.callUid || uid == offerPending?.optString("call_uid")) {
                         offerPending = null
                         callEngine?.end(false)
+                        callAudio.release()
                         callStatusCallback?.invoke("ended", peer, "audio")
                     }
                 }
@@ -381,10 +385,11 @@ class AppController(context: Context) {
                 .onSuccess { ice -> main.post {
                     runCatching {
                         require(callSocket != null) { "Нет соединения для звонков" }
+                        callAudio.start(video)
                         callEngine?.begin(peer, video, ice)
                         callStatusCallback?.invoke("outgoing", peer, if (video) "video" else "audio")
                         callEngine?.offer()
-                    }.onFailure { callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") }
+                    }.onFailure { callAudio.release(); callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") }
                 } }
                 .onFailure { main.post { callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") } }
         }
@@ -399,10 +404,11 @@ class AppController(context: Context) {
             runCatching { authenticated { api.callIceConfig() } }
                 .onSuccess { ice -> main.post {
                     runCatching {
+                        callAudio.start(mode == "video")
                         callEngine?.begin(peer, mode == "video", ice, frame.optString("call_uid"))
                         callStatusCallback?.invoke("connecting", peer, mode)
                         callEngine?.answer(frame.optJSONObject("sdp") ?: JSONObject())
-                    }.onFailure { callStatusCallback?.invoke("error", peer, mode) }
+                    }.onFailure { callAudio.release(); callStatusCallback?.invoke("error", peer, mode) }
                 } }
                 .onFailure { main.post {
                     callSocket?.send(peer, frame.optString("call_uid"), "call_decline", JSONObject().put("reason", "media_unavailable"))
@@ -418,6 +424,7 @@ class AppController(context: Context) {
                 "call_decline", JSONObject().put("reason", "declined"))
         } else callEngine?.end(!decline)
         offerPending = null
+        callAudio.release()
         callStatusCallback?.invoke("ended", null, "audio")
     }
 
@@ -425,11 +432,15 @@ class AppController(context: Context) {
     fun attachRemoteVideo(renderer: org.webrtc.SurfaceViewRenderer) { callEngine?.attachRemote(renderer) }
     fun detachRemoteVideo(renderer: org.webrtc.SurfaceViewRenderer) { callEngine?.detachRemote(renderer) }
 
+    fun setCallSpeaker(enabled: Boolean) { callAudio.selectSpeaker(enabled) }
+    fun callSpeakerSelected(): Boolean = callAudio.isSpeakerSelected()
+
     fun setCallMuted(muted: Boolean) { callEngine?.mute(muted) }
     fun setCallCamera(enabled: Boolean) { callEngine?.camera(enabled) }
 
     fun disconnectCalls() {
         callEngine?.release()
+        callAudio.release()
         callEngine = null
         callSocket?.destroy()
         callSocket = null
