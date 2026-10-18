@@ -10,7 +10,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 import ru.pubchat.app.MainActivity
 import ru.pubchat.app.R
 
@@ -38,9 +37,11 @@ class CallForegroundService : Service() {
         val video = intent?.getBooleanExtra(EXTRA_VIDEO, false) == true
         val foregroundType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
             (if (video) ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else 0)
-        ServiceCompat.startForeground(
-            this, NOTIFICATION_ID, activeNotification(video), foregroundType
-        )
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(NOTIFICATION_ID, activeNotification(video), foregroundType)
+        } else {
+            startForeground(NOTIFICATION_ID, activeNotification(video))
+        }
         return START_NOT_STICKY
     }
 
