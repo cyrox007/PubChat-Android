@@ -82,6 +82,8 @@ import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
 import ru.pubchat.app.ui.components.SocialAvailabilityControls
 import ru.pubchat.app.ui.components.FriendshipHubContent
+import ru.pubchat.app.ui.components.PubChatEmptyState
+import ru.pubchat.app.ui.components.PubChatListSkeleton
 import ru.pubchat.app.ui.components.RoomMessageCard
 import ru.pubchat.app.ui.components.RoomControlPanel
 
@@ -918,8 +920,15 @@ private fun NavButton(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun SpacesContent(state: AppState.SignedIn, controller: AppController, onState: (AppState) -> Unit, onOpen: (PubChatApi.SpaceSummary) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         if (!state.error.isNullOrBlank()) Text(state.error, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
-        if (state.loading) Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        if (state.loading && state.spaces.isEmpty()) PubChatListSkeleton()
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (state.spaces.isEmpty() && !state.loading) item {
+                PubChatEmptyState(
+                    title = "Пока нет пространств",
+                    explanation = "Новые пространства появятся здесь. Обновите каталог позднее.",
+                    actionLabel = "Обновить", onAction = { controller.reload(state, onState) },
+                )
+            }
             items(state.spaces, key = PubChatApi.SpaceSummary::uid) { space ->
                 Card(Modifier.fillMaxWidth().clickable { onOpen(space) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Column(Modifier.padding(16.dp)) {
@@ -974,8 +983,12 @@ private fun PeopleContent(
             TextButton(onClick = onSearch) { Text("Найти") }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (loading) Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        if (loading) PubChatListSkeleton()
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+            if (people.isEmpty()) item {
+                PubChatEmptyState(title = "Никого не найдено",
+                    explanation = "Попробуйте изменить фильтры или имя в поиске.")
+            }
             items(people, key = PubChatApi.PersonSummary::accountUid) { person ->
                 Card(Modifier.fillMaxWidth().clickable { onOpen(person) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Column(Modifier.padding(14.dp)) {
@@ -1004,7 +1017,12 @@ private fun MessengerListContent(dialogs: List<PubChatApi.DialogSummary>, loadin
         error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
         if (loading) Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         else LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (dialogs.isEmpty()) item { Text("Личные разговоры появятся здесь после первого сообщения.", Modifier.padding(12.dp)) }
+            if (dialogs.isEmpty()) item {
+                PubChatEmptyState(
+                    title = "Здесь пока нет сообщений",
+                    explanation = "Найдите интересного человека, чтобы начать общение.",
+                )
+            }
             items(dialogs, key = PubChatApi.DialogSummary::partnerUid) { dialog ->
                 Card(Modifier.fillMaxWidth().clickable { onOpen(dialog) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
