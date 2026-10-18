@@ -48,7 +48,7 @@ class PubChatFirebaseService : FirebaseMessagingService() {
                 putExtra("call_uid", callUid)
             }
             val actionIntent = PendingIntent.getActivity(
-                this, requestCode, target, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                this, requestCode xor (callUid?.hashCode() ?: 0), target, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             return NotificationCompat.Action.Builder(0, label, actionIntent).build()
         }
@@ -66,6 +66,7 @@ class PubChatFirebaseService : FirebaseMessagingService() {
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("Входящий звонок PubChat")
                 .setContentText("Ответить или отклонить в приложении")
+                .setTimeoutAfter(60_000L)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
