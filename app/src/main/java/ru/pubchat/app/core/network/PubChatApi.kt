@@ -329,8 +329,36 @@ class PubChatApi(
 
     private data class HttpResult(val body: String, val refreshCookie: String?)
 
+    private fun csrfProof(): String {
+        val base = BuildConfig.API_BASE_URL.trimEnd('/')
+        val connection = (URL("$base/csrf/get").openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15_000
+            readTimeout = 20_000
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Cache-Control", "no-store")
+            setRequestProperty("X-PubChat-Device-ID", deviceUid())
+        }
+        return try {
+            val code = connection.responseCode
+            if (code !in 200..299) throw ApiFailure(code, "Не удалось получить защитный токен")
+            val token = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+                .getString("csrf_token")
+            val cookies = connection.headerFields.entries
+                .firstOrNull { (key, _) -> key?.equals("Set-Cookie", ignoreCase = true) == true }
+                ?.value.orEmpty()
+            require(cookies.any { it.substringBefore(';').trim() == "XSRF-TOKEN=$token" }) {
+                "Сервер не установил CSRF cookie"
+            }
+            token
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun request(method: String, path: String, body: JSONObject? = null, includeAccessToken: Boolean = true, includeRefreshCookie: Boolean = true): HttpResult {
         val base = BuildConfig.API_BASE_URL.trimEnd('/')
+        val csrf = if (method.uppercase() !in setOf("GET", "HEAD", "OPTIONS")) csrfProof() else null
         val connection = (URL("$base$path").openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 15_000
@@ -340,7 +368,12 @@ class PubChatApi(
             setRequestProperty("X-PubChat-Device-ID", deviceUid())
             setRequestProperty("User-Agent", "PubChat-Android/${BuildConfig.VERSION_NAME}")
             if (includeAccessToken) accessToken()?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Authorization", "Bearer $it") }
-            if (includeRefreshCookie) refreshCookie()?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Cookie", it) }
+            val cookies = buildList {
+                if (includeRefreshCookie) refreshCookie()?.takeIf { it.isNotBlank() }?.let { add(it) }
+                csrf?.let { add("XSRF-TOKEN=$it") }
+            }
+            if (cookies.isNotEmpty()) setRequestProperty("Cookie", cookies.joinToString("; "))
+            csrf?.let { setRequestProperty("X-CSRF-Token", it) }
             if (body != null) {
                 doOutput = true
                 outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(body.toString()) }
