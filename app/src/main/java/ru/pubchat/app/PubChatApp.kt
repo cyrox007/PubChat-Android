@@ -562,7 +562,7 @@ private fun MessageCard(message: PubChatApi.ChatMessage, own: Boolean, onClick: 
         Column(Modifier.padding(10.dp)) {
             if (!own) Text(message.senderName ?: "Участник PubChat", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             if (message.replyToUid != null) Text("↪ Ответ на сообщение", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            Text(if (message.contentType == "deleted") "Сообщение удалено" else message.content)
+            Text(if (message.contentType == "deleted") "Сообщение удалено" else message.attachmentName?.let { "📎 $it" } ?: message.content)
             message.reactions?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
             if (own) Text(if (message.isRead) "Прочитано" else "Отправлено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
