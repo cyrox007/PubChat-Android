@@ -72,6 +72,8 @@ class PubChatApi(
         val unreadCount: Int,
     )
 
+    data class Notice(val uid: String, val title: String, val body: String, val read: Boolean, val targetUid: String?, val surface: String?)
+
     data class RealtimeTicket(
         val ticket: String,
         val websocketPath: String,
@@ -193,6 +195,36 @@ class PubChatApi(
             "/messages/v2/messenger/$messageUid/forward",
             JSONObject().put("target_surface", "messenger").put("target_uid", targetPartnerUid),
         )
+    }
+
+
+    fun notifications(): List<Notice> {
+        val root = JSONObject(request("GET", "/notifications/v1?limit=50").body)
+        val items = root.optJSONArray("notifications") ?: JSONArray()
+        return buildList {
+            for (index in 0 until items.length()) {
+                val entry = items.optJSONObject(index) ?: continue
+                val uid = entry.optString("uid")
+                if (uid.isBlank()) continue
+                val payload = entry.optJSONObject("payload")
+                add(Notice(
+                    uid = uid,
+                    title = entry.optString("title").ifBlank { "Уведомление PubChat" },
+                    body = entry.optString("body").ifBlank { entry.optString("message") },
+                    read = entry.optBoolean("is_read", entry.optBoolean("read", false)),
+                    targetUid = payload?.optNullableString("space_uid") ?: payload?.optNullableString("peer_uid") ?: entry.optNullableString("target_uid"),
+                    surface = payload?.optNullableString("surface") ?: entry.optNullableString("surface"),
+                ))
+            }
+        }
+    }
+
+    fun markNotificationRead(uid: String) {
+        request("PATCH", "/notifications/v1/$uid/read")
+    }
+
+    fun markAllNotificationsRead() {
+        request("POST", "/notifications/v1/read-all")
     }
 
     fun refresh(): RefreshResult {
