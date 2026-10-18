@@ -421,11 +421,15 @@ class AppController(context: Context) {
         callStatusCallback?.invoke("ended", null, "audio")
     }
 
+    fun callVideoContext(): org.webrtc.EglBase.Context? = callEngine?.videoContext
+    fun attachRemoteVideo(renderer: org.webrtc.SurfaceViewRenderer) { callEngine?.attachRemote(renderer) }
+    fun detachRemoteVideo(renderer: org.webrtc.SurfaceViewRenderer) { callEngine?.detachRemote(renderer) }
+
     fun setCallMuted(muted: Boolean) { callEngine?.mute(muted) }
     fun setCallCamera(enabled: Boolean) { callEngine?.camera(enabled) }
 
     fun disconnectCalls() {
-        callEngine?.end(false)
+        callEngine?.release()
         callEngine = null
         callSocket?.destroy()
         callSocket = null
