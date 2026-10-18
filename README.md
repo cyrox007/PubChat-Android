@@ -40,8 +40,12 @@
 
 ## Firebase / push: настройка
 
+Обычный Gradle Sync и сборка не требуют `google-services.json`: без файла Google Services plugin не скачивается и не применяется. Firebase SDK остаётся зависимостью приложения, но регистрация FCM пропускается, пока Firebase не настроен.
+
+Для локальной проверки без Firebase: `./gradlew help testDebugUnitTest lintDebug assembleDebug` (Windows: `gradlew.bat`). Нужны JDK/Android SDK и доступ к репозиториям остальных зависимостей; полностью offline-сборка требует заранее заполненного Gradle cache.
+
 1. В Firebase зарегистрировать release `ru.pubchat.app` и отдельно debug `ru.pubchat.app.debug`.
-2. Локально положить `app/google-services.json` (не коммитить). Google Services plugin активируется только при наличии этого файла.
+2. Локально положить `app/google-services.json` (файл исключён из Git). При следующем Gradle Sync плагин `com.google.gms:google-services:4.4.2` загрузится из Google Maven и применится автоматически. Для сборки обеих версий файл должен содержать клиентов для обоих package name. После добавления или удаления файла повторить Gradle Sync.
 3. На сервере настроить `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, `FCM_SERVICE_ACCOUNT_PRIVATE_KEY` в защищённом окружении. Включить и проверить worker native push и настройку `native_push_messenger` у аккаунта.
 4. После входа проверить регистрацию через `POST /notifications/v1/native-push/devices`, получение push в foreground/background, смену токена и отзыв регистрации при logout.
 5. Для звонков проверить `/calls/v1/pending-offer`, срок 60 секунд, отсутствие SDP и ICE в push, запрет автоответа/доступа к камере из background, отклонение старого `call_uid`.

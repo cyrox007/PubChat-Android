@@ -1,11 +1,24 @@
+// `apply false` in plugins {} still resolves the plugin during every sync.
+// Load the implementation directly from Google Maven only for Firebase builds.
+buildscript {
+    if (file("google-services.json").isFile) {
+        repositories {
+            google()
+            mavenCentral()
+        }
+        dependencies {
+            classpath("com.google.gms:google-services:4.4.2")
+        }
+    }
+}
+
 plugins {
-    id("com.google.gms.google-services") version "4.4.2" apply false
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
-// Firebase is opt-in: no secrets or google-services.json are committed.
-if (file("google-services.json").exists()) {
+// Firebase is opt-in; keep this condition in sync with buildscript above.
+if (file("google-services.json").isFile) {
     pluginManager.apply("com.google.gms.google-services")
 }
 
