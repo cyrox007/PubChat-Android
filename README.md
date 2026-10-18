@@ -91,3 +91,7 @@ An outgoing or accepted call started in the visible Activity now starts an ongoi
 ## Incoming calls from background (FCM recovery slice)
 
 Call push notifications use a distinct Android notification channel. On opening the app, the call WebSocket connects using a fresh ticket; the app fetches `/calls/v1/pending-offer` and shows a consent-required incoming call dialog if the offer has not expired. SDP remains backend-side and never appears in FCM data. This does **not** implement lock-screen full-screen intents, direct answer/decline buttons, Telecom integration, or reliable process-death delivery guarantees; Android/Firebase provisioning and physical-device tests are required.
+
+## Call signaling recovery
+
+Call signaling retries a new one-time ticket using bounded exponential backoff (up to five retries); old sockets are identity-guarded. An interrupted active call ends safely and releases audio/foreground service: resuming an existing WebRTC peer session after lost signaling is not supported. Transient ICE disconnections show a reconnecting state for at most 12 seconds; persistent loss terminates the call. This protects against orphaned calls but is not ICE restart/re-negotiation; real-device Wi-Fi/LTE handover remains to be tested.
