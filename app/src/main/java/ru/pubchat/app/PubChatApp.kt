@@ -564,14 +564,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onAttach = { uri -> controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error } },
                     onSend = send@{
                         if (roomReplySending) return@send
-                        val source = roomReply
-                        if (source != null && activeSpace != null) {
-                            roomReplySending = true
-                            controller.spaceAction(activeSpace!!.uid, "reply", source.uid, draft) { error ->
-                                roomReplySending = false; chatError = error
-                                if (error == null) { draft = ""; roomReply = null }
-                            }
-                        } else if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) draft = ""
+                        if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName, roomReply?.uid)) {
+                            draft = ""; roomReply = null; chatError = null
+                        }
                         else chatError = "Соединение ещё не готово"
                     })
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
@@ -654,9 +649,14 @@ private fun PeopleContent(people: List<PubChatApi.PersonSummary>, loading: Boole
             items(people, key = PubChatApi.PersonSummary::accountUid) { person ->
                 Card(Modifier.fillMaxWidth().clickable { onOpen(person) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ru.pubchat.app.ui.components.UserAvatar(person.displayName, person.avatar)
+                            Column(Modifier.weight(1f)) {
                         Text(person.displayName, fontWeight = FontWeight.SemiBold)
                         person.handle?.let { Text("@$it", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        person.bio?.let { Text(it, Modifier.padding(top = 4.dp)) }
+                            }
+                        }
+                        person.bio?.let { Text(it, Modifier.padding(top = 8.dp)) }
                         person.socialIntent?.let { Text(intentLabel(it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
                     }
                 }
@@ -674,7 +674,8 @@ private fun MessengerListContent(dialogs: List<PubChatApi.DialogSummary>, loadin
             if (dialogs.isEmpty()) item { Text("Личные разговоры появятся здесь после первого сообщения.", Modifier.padding(12.dp)) }
             items(dialogs, key = PubChatApi.DialogSummary::partnerUid) { dialog ->
                 Card(Modifier.fillMaxWidth().clickable { onOpen(dialog) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ru.pubchat.app.ui.components.UserAvatar(dialog.displayName, dialog.avatar)
                         Column(Modifier.weight(1f)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(dialog.displayName, fontWeight = FontWeight.SemiBold)
@@ -709,6 +710,7 @@ private fun ProfileContent(state: AppState.SignedIn) {
 private fun PersonContent(person: PubChatApi.PersonSummary?, onMessage: (PubChatApi.PersonSummary) -> Unit) {
     if (person == null) return
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ru.pubchat.app.ui.components.UserAvatar(person.displayName, person.avatar, 80.dp)
         Text(person.displayName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         person.handle?.let { Text("@$it", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         person.bio?.let { Text(it) }

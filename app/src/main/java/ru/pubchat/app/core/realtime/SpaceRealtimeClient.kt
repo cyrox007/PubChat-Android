@@ -55,19 +55,9 @@ class SpaceRealtimeClient(
         })
     }
 
-    fun sendMessage(content: String, accountUid: String, displayName: String): Boolean {
+    fun sendMessage(content: String, accountUid: String, displayName: String, replyToUid: String? = null): Boolean {
         val active = socket ?: return false
-        val payload = JSONObject()
-            .put("frontId", java.util.UUID.randomUUID().toString())
-            .put("content", content.trim())
-            .put("content_type", "text")
-            .put("media_metadata", JSONObject())
-            .put(
-                "sender",
-                JSONObject()
-                    .put("uid", accountUid)
-                    .put("name", displayName)
-            )
+        val payload = roomTextFrame(content, accountUid, displayName, replyToUid)
         return active.send(payload.toString())
     }
 
@@ -102,3 +92,10 @@ class SpaceRealtimeClient(
         socket = null
     }
 }
+internal fun roomTextFrame(content: String, accountUid: String, displayName: String, replyToUid: String?): JSONObject = JSONObject()
+    .put("frontId", java.util.UUID.randomUUID().toString())
+    .put("content", content.trim())
+    .put("content_type", "text")
+    .put("media_metadata", JSONObject())
+    .put("sender", JSONObject().put("uid", accountUid).put("name", displayName))
+    .apply { replyToUid?.takeIf { it.isNotBlank() }?.let { put("reply_to_uid", it) } }
