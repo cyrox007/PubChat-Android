@@ -1,6 +1,9 @@
 package ru.pubchat.app
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.util.Base64
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
@@ -27,7 +30,8 @@ sealed interface AppState {
 }
 
 class AppController(context: Context) {
-    private val session = SessionStore(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val session = SessionStore(appContext)
     private val api = PubChatApi(
         deviceUid = { session.deviceUid },
         accessToken = { session.accessToken() },
@@ -264,6 +268,45 @@ class AppController(context: Context) {
     fun sendSpaceMessage(content: String, accountUid: String, displayName: String): Boolean {
         if (content.isBlank()) return false
         return realtime?.sendMessage(content, accountUid, displayName) == true
+    }
+
+    fun sendSpaceAttachment(
+        uri: Uri,
+        accountUid: String,
+        displayName: String,
+        onDone: (String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                val resolver = appContext.contentResolver
+                val mime = resolver.getType(uri) ?: "application/octet-stream"
+                val allowed = mime.startsWith("image/") || mime.startsWith("video/") ||
+                    mime.startsWith("audio/") || mime in setOf("application/pdf",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                require(allowed) { "Этот тип файла не поддерживается" }
+                var name = "attachment"
+                resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) name = cursor.getString(0) ?: name
+                }
+                val bytes = resolver.openInputStream(uri)?.use { stream ->
+                    val buffer = ByteArray(2 * 1024 * 1024 + 1)
+                    var used = 0
+                    while (used < buffer.size) {
+                        val count = stream.read(buffer, used, buffer.size - used)
+                        if (count < 0) break
+                        used += count
+                    }
+                    buffer.copyOf(used)
+                } ?: error("Не удалось открыть вложение")
+                require(bytes.size <= 2 * 1024 * 1024) { "Файл слишком большой (до 2 МБ)" }
+                val dataUrl = "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                check(realtime?.sendAttachment("", accountUid, displayName, name, mime, bytes.size, dataUrl) == true) {
+                    "Разговор сейчас недоступен"
+                }
+            }.onSuccess { main.post { onDone(null) } }
+                .onFailure { error -> main.post { onDone(humanMessage(error)) } }
+        }
     }
 
     fun closeSpace() {
