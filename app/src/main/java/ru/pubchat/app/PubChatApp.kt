@@ -483,7 +483,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             AppSection.PEOPLE -> "Люди"
                             AppSection.MESSENGER -> "Сообщения"
                             AppSection.NOTIFICATIONS -> "Уведомления"
-                            AppSection.PROFILE -> "Мой образ"
+                            AppSection.PROFILE -> "Профиль"
                             AppSection.PERSON -> person?.displayName ?: "Образ"
                             AppSection.SPACE -> activeSpace?.name ?: "Пространство"
                             AppSection.MESSENGER_CHAT -> activeDialog?.displayName ?: "Разговор"
@@ -519,19 +519,19 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                 NavigationBar( containerColor = MaterialTheme.colorScheme.surface) {
                     NavigationBarItem(selected = section == AppSection.SPACES,
                         onClick = { controller.closeMessenger(); section = AppSection.SPACES },
-                        icon = { Text("▦") }, label = { Text("Места") })
+                        icon = { Icon(painterResource(R.drawable.ic_spaces), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Пространства", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.PEOPLE,
                         onClick = { controller.closeMessenger(); section = AppSection.PEOPLE; loadPeople() },
-                        icon = { Text("♧") }, label = { Text("Люди") })
+                        icon = { Icon(painterResource(R.drawable.ic_people), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Люди", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.MESSENGER,
                         onClick = { section = AppSection.MESSENGER; loadDialogsAndConnect() },
-                        icon = { Text("✉") }, label = { Text("Чаты") })
+                        icon = { Icon(painterResource(R.drawable.ic_messages), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Сообщения", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.NOTIFICATIONS,
                         onClick = { controller.closeMessenger(); section = AppSection.NOTIFICATIONS; loadNotices() },
-                        icon = { Text("◉") }, label = { Text("Важное") })
+                        icon = { Icon(painterResource(R.drawable.ic_notifications), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Уведомления", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.PROFILE,
                         onClick = { controller.closeMessenger(); section = AppSection.PROFILE },
-                        icon = { Text("◌") }, label = { Text("Профиль") })
+                        icon = { Icon(painterResource(R.drawable.ic_profile), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Профиль", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                 }
             }
         },
@@ -553,7 +553,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         else noticesError = error
                     }
                 }
-                AppSection.PROFILE -> ProfileContent(state)
+                AppSection.PROFILE -> ru.pubchat.app.ui.components.ProfilePanel(state, controller, onState)
                 AppSection.PERSON -> PersonContent(person) { target ->
                     val synthetic = PubChatApi.DialogSummary(target.accountUid, target.displayName, target.handle, target.avatar, null, null, 0)
                     loadDialogsAndConnect(target.accountUid, synthetic)
