@@ -48,6 +48,13 @@ class MainActivity : ComponentActivity() {
     }
     private val destination = mutableStateOf<PubChatDeepLink?>(null)
 
+    private fun configureLockScreen(show: Boolean) {
+        if (Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(show)
+            setTurnScreenOn(show)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -56,6 +63,7 @@ class MainActivity : ComponentActivity() {
         }
         destination.value = parsePubChatDeepLink(intent?.data)
         callAction.value = resolveCallAction(intent)
+        configureLockScreen(callAction.value != null)
         val controller = AppController(applicationContext)
         setContent {
             PubChatTheme {
@@ -76,5 +84,6 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         destination.value = parsePubChatDeepLink(intent.data)
         callAction.value = resolveCallAction(intent)
+        configureLockScreen(callAction.value != null)
     }
 }
