@@ -34,7 +34,7 @@ Native Android client for PubChat.
 Android is considered ready only when normal user flows available on the web client are available natively as well. Remaining parity blocks include:
 
 1. Messenger media/attachments and E2EE-aware delivery UX.
-2. Production FCM + deep links: requires a dedicated authenticated Android-token registration/delivery API, Firebase setup, and push delivery tests; existing backend Web Push (VAPID) is not FCM.
+2. Production FCM notification dispatch requires a dedicated authenticated Android-token registration/delivery API, Firebase setup, and push delivery tests; existing backend Web Push (VAPID) is not FCM. HTTPS app-link verification also requires an Android assetlinks.json hosted by pubchat.ru.
 3. Native voice/video WebRTC calls.
 4. Full Space sections: Community, Life, Support and moderation.
 5. Invitations, events, games, tasks and membership management.
@@ -57,3 +57,7 @@ Cleartext traffic is intentionally disabled. Local development should use HTTPS 
 ## Media and push constraints
 
 Space uploads use the site's existing realtime data-URL media envelope, limited to 2 MiB on Android to bound memory and WebSocket frames. They do not yet persist attachments offline or provide a native media viewer. Do not send DM attachments in plaintext: native E2EE device identity/key agreement is required first. The notifications tab is an authenticated foreground inbox; no background FCM push or Android deep-link dispatch is claimed until server contracts and Firebase provisioning are implemented.
+
+## Deep links
+
+Authenticated routes: `pubchat://spaces/<uuid>`, `pubchat://messenger/<uuid>`, `https://pubchat.ru/spaces/<uuid>` and `https://pubchat.ru/messenger/<uuid>`. Invalid UUIDs or untrusted domains are ignored. Pending links survive the login screen. Android OS verification of HTTPS App Links is not enabled until the public domain hosts its matching Digital Asset Links statement; otherwise Android may show a chooser.

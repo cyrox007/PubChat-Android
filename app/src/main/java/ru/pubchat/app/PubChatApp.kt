@@ -41,7 +41,7 @@ import ru.pubchat.app.core.network.PubChatApi
 enum class AppSection { SPACES, PEOPLE, MESSENGER, PROFILE, PERSON, SPACE, MESSENGER_CHAT, NOTIFICATIONS }
 
 @Composable
-fun PubChatApp(controller: AppController) {
+fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onDeepLinkConsumed: () -> Unit = {}) {
     var state by remember { mutableStateOf<AppState>(AppState.Booting) }
     LaunchedEffect(controller) { controller.bootstrap { state = it } }
     DisposableEffect(controller) { onDispose { controller.close() } }
@@ -53,7 +53,7 @@ fun PubChatApp(controller: AppController) {
             onLogin = { identifier, password -> controller.login(identifier, password) { state = it } },
             onRegister = { handle, name, email, password, intent -> controller.register(handle, name, email, password, intent) { state = it } },
         )
-        is AppState.SignedIn -> AuthenticatedShell(current, controller) { state = it }
+        is AppState.SignedIn -> AuthenticatedShell(current, controller, deepLink, onDeepLinkConsumed) { state = it }
     }
 }
 
@@ -139,7 +139,7 @@ private fun AuthScreen(
 }
 
 @Composable
-private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppController, onState: (AppState) -> Unit) {
+private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppController, deepLink: PubChatDeepLink?, onDeepLinkConsumed: () -> Unit, onState: (AppState) -> Unit) {
     var section by remember { mutableStateOf(AppSection.SPACES) }
     var people by remember { mutableStateOf<List<PubChatApi.PersonSummary>>(emptyList()) }
     var peopleLoading by remember { mutableStateOf(false) }
@@ -268,6 +268,21 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         dmDraft = ""
         section = AppSection.MESSENGER_CHAT
         if (messengerConnection == "connected") controller.requestConversation(dialog.partnerUid) else connectMessenger(dialog.partnerUid)
+    }
+
+    LaunchedEffect(deepLink) {
+        if (deepLink != null) {
+            when (deepLink.kind) {
+                "spaces" -> openSpace(state.spaces.find { it.uid == deepLink.uid } ?: PubChatApi.SpaceSummary(
+                    deepLink.uid, "Пространство", null, null, null, null, null, null
+                ))
+                "messenger" -> {
+                    section = AppSection.MESSENGER
+                    loadDialogsAndConnect(deepLink.uid)
+                }
+            }
+            onDeepLinkConsumed()
+        }
     }
 
     Scaffold(
