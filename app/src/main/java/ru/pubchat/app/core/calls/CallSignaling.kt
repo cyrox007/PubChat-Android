@@ -6,6 +6,9 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import ru.pubchat.app.BuildConfig
 import ru.pubchat.app.core.network.PubChatApi
 
@@ -16,6 +19,8 @@ class CallSignaling(
 ) {
     private val http = OkHttpClient()
     private var socket: WebSocket? = null
+    private val heartbeatExecutor = Executors.newSingleThreadScheduledExecutor()
+    private var heartbeat: ScheduledFuture<*>? = null
     @Volatile private var ready = false
 
     fun connect(ticket: PubChatApi.RealtimeTicket) {
@@ -31,6 +36,10 @@ class CallSignaling(
                 if (frame.optString("type") == "realtime_ready") {
                     ready = true
                     onStatus("ready")
+                    heartbeat?.cancel(false)
+                    heartbeat = heartbeatExecutor.scheduleAtFixedRate({
+                        webSocket.send(JSONObject().put("type", "heartbeat").put("action", "heartbeat").toString())
+                    }, 25, 25, TimeUnit.SECONDS)
                 } else if (frame.optString("type") == "ping") {
                     webSocket.send(JSONObject().put("type", "pong").toString())
                 } else {
@@ -57,12 +66,15 @@ class CallSignaling(
 
     fun close() {
         ready = false
+        heartbeat?.cancel(false)
+        heartbeat = null
         socket?.close(1000, "Client disconnect")
         socket = null
     }
 
     fun destroy() {
         close()
+        heartbeatExecutor.shutdownNow()
         http.dispatcher.executorService.shutdown()
         http.connectionPool.evictAll()
     }
