@@ -40,6 +40,18 @@ class PubChatFirebaseService : FirebaseMessagingService() {
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val callUid = message.data["call_uid"]?.takeIf { runCatching { java.util.UUID.fromString(it) }.isSuccess }
+        fun callAction(label: String, actionName: String, requestCode: Int): NotificationCompat.Action {
+            val target = Intent(this, MainActivity::class.java).apply {
+                action = actionName
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("call_uid", callUid)
+            }
+            val actionIntent = PendingIntent.getActivity(
+                this, requestCode, target, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            return NotificationCompat.Action.Builder(0, label, actionIntent).build()
+        }
         val notification = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(if (incomingCall) "Входящий звонок PubChat" else "Новое сообщение в PubChat")
@@ -49,7 +61,22 @@ class PubChatFirebaseService : FirebaseMessagingService() {
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
-        manager.notify(message.messageId?.hashCode() ?: System.currentTimeMillis().toInt(), notification)
+        if (incomingCall && callUid != null) {
+            val callNotification = NotificationCompat.Builder(this, channel)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("Входящий звонок PubChat")
+                .setContentText("Ответить или отклонить в приложении")
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pending)
+                .addAction(callAction("Ответить", "ru.pubchat.app.call.ANSWER", 1701))
+                .addAction(callAction("Отклонить", "ru.pubchat.app.call.DECLINE", 1702))
+                .build()
+            manager.notify(callUid.hashCode(), callNotification)
+        } else {
+            manager.notify(message.messageId?.hashCode() ?: System.currentTimeMillis().toInt(), notification)
+        }
     }
 
     companion object {
