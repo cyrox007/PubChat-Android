@@ -72,6 +72,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
@@ -864,7 +866,7 @@ private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean,
         )
         IconButton(onClick = onSend, enabled = enabled && draft.isNotBlank(), modifier = Modifier.size(40.dp).clip(RoundedCornerShape(20.dp))
             .background(if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-            .semantics { contentDescription = "Отправить сообщение" }) { Text("↑", fontSize = 23.sp, color = if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant) }
+            .semantics { contentDescription = "Отправить сообщение" }) { Icon(painterResource(R.drawable.ic_send), contentDescription = null, modifier = Modifier.size(22.dp), tint = if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
