@@ -70,3 +70,9 @@
 - Проверить HTTPS App Links и необходимые доменные настройки, затем отдельный release gate.
 
 Документация основной системы: [обзор мультиклиентной архитектуры](https://github.com/cyrox007/PubChat/blob/main/docs/client-repositories.md).
+
+## Бренд и двухтокенная сессия (октябрь 2026)
+
+Android Compose использует семантическую светлую/тёмную палитру PubChat из `cyrox007/PubChat/frontend/src/assets/main.css`; Dynamic Material You цвета выключены, чтобы тема не зависела от обоев. Adaptive launcher icon теперь содержит самостоятельный векторный знак разговора на фирменном сливовом фоне; исходные PNG веб-favicon автоматически не копируются — для точного совпадения графики их потребуется перенести отдельным asset-commit.
+
+Backend выдаёт access JWT в JSON и ротируемый refresh token в HttpOnly `Set-Cookie`. Android шифрует оба в Keystore-backed storage, отправляет `X-PubChat-Device-ID` (уникальный UUID установки) и использует cookie при `/identity/v2/refresh`; backend группирует сессии по device UID, но UUID устройства сам по себе не является секретом аутентификации. Новый login/register не должен посылать refresh cookie предыдущей сессии. Серверный отказ `403` не следует обходить; проверять его нужно отдельно по account-access restrictions, credentials и логам сервера. Тестирование реального устройства и серверной политики сессий обязательно.
