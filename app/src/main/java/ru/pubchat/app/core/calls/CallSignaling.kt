@@ -11,6 +11,7 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import ru.pubchat.app.BuildConfig
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.network.HttpClientCleanup
 
 /** Dedicated calls socket: Messenger socket does not receive call_signal frames. */
 class CallSignaling(
@@ -75,7 +76,6 @@ class CallSignaling(
     fun destroy() {
         close()
         heartbeatExecutor.shutdownNow()
-        http.dispatcher.executorService.shutdown()
-        http.connectionPool.evictAll()
+        HttpClientCleanup.release(http)
     }
 }
