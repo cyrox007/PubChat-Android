@@ -869,9 +869,38 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
 }
 
 @Composable
-private fun PeopleContent(people: List<PubChatApi.PersonSummary>, loading: Boolean, error: String?, query: String, onQuery: (String) -> Unit, onSearch: () -> Unit, onFriendships: () -> Unit, onOpen: (PubChatApi.PersonSummary) -> Unit) {
+private fun PeopleContent(
+    people: List<PubChatApi.PersonSummary>,
+    loading: Boolean,
+    error: String?,
+    query: String,
+    onQuery: (String) -> Unit,
+    intent: String,
+    availableNow: Boolean,
+    onIntentChange: (String) -> Unit,
+    onAvailableChange: (Boolean) -> Unit,
+    availability: PubChatApi.SocialAvailability?,
+    availabilityBusy: Boolean,
+    availabilityError: String?,
+    onSaveAvailability: (String, Int, String) -> Unit,
+    onClearAvailability: () -> Unit,
+    onSearch: () -> Unit,
+    onFriendships: () -> Unit,
+    onOpen: (PubChatApi.PersonSummary) -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         OutlinedButton(onClick = onFriendships, modifier = Modifier.fillMaxWidth()) { Text("Друзья и заявки") }
+        SocialAvailabilityControls(
+            intent = intent,
+            availableNow = availableNow,
+            onIntentChange = onIntentChange,
+            onAvailableChange = onAvailableChange,
+            availability = availability,
+            busy = availabilityBusy,
+            error = availabilityError,
+            onSave = onSaveAvailability,
+            onClear = onClearAvailability,
+        )
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(query, onQuery, Modifier.weight(1f), label = { Text("Имя или @handle") }, singleLine = true)
             TextButton(onClick = onSearch) { Text("Найти") }
@@ -890,7 +919,10 @@ private fun PeopleContent(people: List<PubChatApi.PersonSummary>, loading: Boole
                             }
                         }
                         person.bio?.let { Text(it, Modifier.padding(top = 8.dp)) }
-                        person.socialIntent?.let { Text(intentLabel(it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
+                        person.liveIntent?.let {
+                            Text("● Сейчас: ${intentLabel(it)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        } ?: person.socialIntent?.let { Text(intentLabel(it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
+                        person.liveNote?.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
             }
