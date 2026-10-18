@@ -48,6 +48,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -242,6 +243,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var notices by remember { mutableStateOf<List<PubChatApi.Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
     var noticesError by remember { mutableStateOf<String?>(null) }
+    var birthdayRemindersEnabled by remember { mutableStateOf(false) }
+    var birthdayRemindersBusy by remember { mutableStateOf(false) }
+    var birthdayRemindersError by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(controller, lifecycleOwner) {
         val onStatus: (String, String?, String) -> Unit = { phase, peer, mode ->
@@ -271,6 +275,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     }
 
     fun loadNotices() {
+        controller.loadBirthdayRemindersPreference { enabled, error ->
+            if (enabled != null) birthdayRemindersEnabled = enabled
+            birthdayRemindersError = error
+        }
         noticesLoading = true
         controller.loadNotifications { loaded, error ->
             notices = loaded
@@ -343,6 +351,19 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             friendshipBusyUid = null
             if (relationship != null && error == null) loadFriendships()
             else friendshipError = error ?: "Не удалось обработать заявку"
+        }
+    }
+
+    fun setBirthdayReminders(enabled: Boolean) {
+        if (birthdayRemindersBusy) return
+        birthdayRemindersBusy = true
+        birthdayRemindersError = null
+        controller.setBirthdayRemindersPreference(enabled) { saved, error ->
+            birthdayRemindersBusy = false
+            if (saved != null) {
+                birthdayRemindersEnabled = saved
+                loadNotices()
+            } else birthdayRemindersError = error ?: "Не удалось обновить настройку"
         }
     }
 
@@ -721,13 +742,22 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                 )
                 AppSection.MESSENGER -> MessengerListContent(dialogs, dialogsLoading, messengerError, onlineStatuses, ::openDialog) { loadDialogsAndConnect() }
                 AppSection.NOTIFICATIONS -> NotificationContent(
-                    notices, noticesLoading, noticesError, ::loadNotices, ::openNotice
-                ) {
-                    controller.markAllNotificationsRead { error ->
-                        if (error == null) notices = notices.map { it.copy(read = true) }
-                        else noticesError = error
-                    }
-                }
+                    notices = notices,
+                    loading = noticesLoading,
+                    error = noticesError,
+                    onReload = ::loadNotices,
+                    onOpen = ::openNotice,
+                    onReadAll = {
+                        controller.markAllNotificationsRead { error ->
+                            if (error == null) notices = notices.map { it.copy(read = true) }
+                            else noticesError = error
+                        }
+                    },
+                    birthdayEnabled = birthdayRemindersEnabled,
+                    birthdayBusy = birthdayRemindersBusy,
+                    birthdayError = birthdayRemindersError,
+                    onBirthdayToggle = ::setBirthdayReminders,
+                )
                 AppSection.PROFILE -> ru.pubchat.app.ui.components.ProfilePanel(state, controller, onState)
                 AppSection.PERSON -> PersonContent(
                     person = person,
@@ -1215,8 +1245,22 @@ private fun NotificationContent(
     onReload: () -> Unit,
     onOpen: (PubChatApi.Notice) -> Unit,
     onReadAll: () -> Unit,
+    birthdayEnabled: Boolean,
+    birthdayBusy: Boolean,
+    birthdayError: String?,
+    onBirthdayToggle: (Boolean) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.weight(1f)) {
+                Text("Дни рождения друзей", style = MaterialTheme.typography.titleSmall)
+                Text("Внутренние уведомления. Только друзья с разрешённым напоминанием; год рождения скрыт.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = birthdayEnabled, onCheckedChange = onBirthdayToggle, enabled = !birthdayBusy)
+        }
+        birthdayError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Требует внимания", style = MaterialTheme.typography.titleMedium)
             TextButton(onClick = onReadAll, enabled = notices.any { !it.read }) { Text("Прочитать всё") }
