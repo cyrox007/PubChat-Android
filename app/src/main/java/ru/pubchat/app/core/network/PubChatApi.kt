@@ -281,6 +281,31 @@ class PubChatApi(
         )
     }
 
+    fun personas(): PersonaList {
+        val root = JSONObject(request("GET", "/identity/v2/personas").body)
+        val items = root.optJSONArray("personas") ?: JSONArray()
+        val result = buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                add(PersonaSummary(
+                    uid = item.getString("uid"),
+                    handle = item.getString("handle"),
+                    displayName = item.getString("display_name"),
+                    isPrimary = item.optBoolean("is_primary", false),
+                ))
+            }
+        }
+        return PersonaList(result, root.optNullableString("active_persona_uid"))
+    }
+
+    fun createPersona(handle: String, displayName: String) {
+        request("POST", "/identity/v2/personas",
+            JSONObject().put("handle", handle).put("display_name", displayName))
+    }
+
+    fun activatePersona(uid: String): Identity =
+        parseIdentity(JSONObject(request("POST", "/identity/v2/personas/$uid/activate").body), null)
+
     fun dialogs(): List<DialogSummary> {
         val root = JSONObject(request("GET", "/messenger/dialogs").body)
         val items = root.optJSONArray("dialogs") ?: JSONArray()
