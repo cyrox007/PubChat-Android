@@ -1,5 +1,7 @@
 package ru.pubchat.app
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -342,7 +344,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     val synthetic = PubChatApi.DialogSummary(target.accountUid, target.displayName, target.handle, target.avatar, null, null, 0)
                     loadDialogsAndConnect(target.accountUid, synthetic)
                 }
-                AppSection.SPACE -> SpaceChatContent(activeSpace, messages, connection, chatError, draft, { draft = it }) {
+                AppSection.SPACE -> SpaceChatContent(activeSpace, messages, connection, chatError, draft, { draft = it }, { uri ->
+                    controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error }
+                }) {
                     if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) draft = "" else chatError = "Соединение ещё не готово"
                 }
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
@@ -486,7 +490,7 @@ private fun PersonContent(person: PubChatApi.PersonSummary?, onMessage: (PubChat
 }
 
 @Composable
-private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<PubChatApi.ChatMessage>, connection: String, error: String?, draft: String, onDraft: (String) -> Unit, onSend: () -> Unit) {
+private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<PubChatApi.ChatMessage>, connection: String, error: String?, draft: String, onDraft: (String) -> Unit, onAttach: (android.net.Uri) -> Unit, onSend: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         space?.description?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         error?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
@@ -494,7 +498,13 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Здесь пока тихо. Начните разговор." else "Подключаем разговор…") }
             items(messages, key = PubChatApi.ChatMessage::uid) { message -> MessageCard(message, false, null) }
         }
-        Composer(draft, onDraft, connection == "connected", onSend)
+        val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) onAttach(uri)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected") { Text("Прикрепить") }
+            Box(Modifier.weight(1f)) { Composer(draft, onDraft, connection == "connected", onSend) }
+        }
     }
 }
 
