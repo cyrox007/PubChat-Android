@@ -563,11 +563,30 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onReply = { roomReply = it }, onCancelReply = { roomReply = null },
                     onAttach = { uri -> controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error } },
                     onSend = send@{
-                        if (roomReplySending) return@send
-                        if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName, roomReply?.uid)) {
-                            draft = ""; roomReply = null; chatError = null
-                        }
-                        else chatError = "Соединение ещё не готово"
+                        if (roomReplySending || draft.isBlank()) return@send
+                        val source = roomReply
+                        if (source != null) {
+                            val submitted = draft
+                            val spaceUid = activeSpace?.uid
+                            roomReplySending = true
+                            controller.replyRoomMessage(source.uid, submitted) { saved, error ->
+                                roomReplySending = false
+                                if (error != null || saved == null) {
+                                    chatError = error ?: "Сервер не подтвердил ответ"
+                                } else {
+                                    if (spaceUid == activeSpace?.uid) {
+                                        messages = mergeMessage(messages, saved)
+                                        if (draft == submitted && roomReply?.uid == source.uid) {
+                                            draft = ""
+                                            roomReply = null
+                                        }
+                                    }
+                                    chatError = null
+                                }
+                            }
+                        } else if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) {
+                            draft = ""; chatError = null
+                        } else chatError = "Соединение ещё не готово"
                     })
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
                     onCall = { video ->

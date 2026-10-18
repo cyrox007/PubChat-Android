@@ -291,6 +291,18 @@ class AppController(context: Context) {
         }
     }
 
+    fun replyRoomMessage(messageUid: String, content: String, onDone: (PubChatApi.ChatMessage?, String?) -> Unit) {
+        if (content.isBlank()) {
+            onDone(null, "Введите текст ответа")
+            return
+        }
+        executor.execute {
+            runCatching { authenticated { api.replySpaceMessage(messageUid, content) } }
+                .onSuccess { saved -> main.post { onDone(saved, null) } }
+                .onFailure { error -> main.post { onDone(null, humanMessage(error)) } }
+        }
+    }
+
     fun sendSpaceMessage(content: String, accountUid: String, displayName: String, replyToUid: String? = null): Boolean {
         if (content.isBlank()) return false
         return realtime?.sendMessage(content, accountUid, displayName, replyToUid) == true
