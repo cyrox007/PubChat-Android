@@ -240,11 +240,45 @@ class AppController(context: Context) {
         }
     }
 
-    fun loadPeople(query: String, onResult: (List<PubChatApi.PersonSummary>, String?) -> Unit) {
+    fun loadPeople(
+        query: String,
+        intent: String? = null,
+        availableNow: Boolean = false,
+        onResult: (List<PubChatApi.PersonSummary>, String?) -> Unit,
+    ) {
         executor.execute {
-            runCatching { authenticated { api.people(query) } }
+            runCatching { authenticated { api.people(query, intent, availableNow) } }
                 .onSuccess { people -> main.post { onResult(people, null) } }
                 .onFailure { error -> main.post { onResult(emptyList(), humanMessage(error)) } }
+        }
+    }
+
+    fun loadSocialAvailability(onResult: (PubChatApi.SocialAvailability?, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.mySocialAvailability() } }
+                .onSuccess { value -> main.post { onResult(value, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
+    fun updateSocialAvailability(
+        intent: String,
+        duration: Int,
+        note: String,
+        onResult: (PubChatApi.SocialAvailability?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching { authenticated { api.setSocialAvailability(intent, duration, note) } }
+                .onSuccess { value -> main.post { onResult(value, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
+    fun clearSocialAvailability(onResult: (String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.clearSocialAvailability() } }
+                .onSuccess { main.post { onResult(null) } }
+                .onFailure { error -> main.post { onResult(humanMessage(error)) } }
         }
     }
 

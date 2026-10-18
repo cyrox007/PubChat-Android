@@ -17,6 +17,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,6 +79,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.ui.components.SocialAvailabilityControls
 import ru.pubchat.app.ui.components.FriendshipHubContent
 import ru.pubchat.app.ui.components.RoomMessageCard
 import ru.pubchat.app.ui.components.RoomControlPanel
@@ -189,6 +192,11 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var peopleLoading by remember { mutableStateOf(false) }
     var peopleError by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
+    var peopleIntent by remember { mutableStateOf("all") }
+    var peopleAvailableNow by remember { mutableStateOf(false) }
+    var myAvailability by remember { mutableStateOf<PubChatApi.SocialAvailability?>(null) }
+    var availabilityBusy by remember { mutableStateOf(false) }
+    var availabilityError by remember { mutableStateOf<String?>(null) }
     var friendshipTab by remember { mutableStateOf("incoming") }
     var friendshipRows by remember { mutableStateOf<List<PubChatApi.FriendshipEntry>>(emptyList()) }
     var friendshipTotal by remember { mutableStateOf(0) }
@@ -340,10 +348,38 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
 
     fun loadPeople() {
         peopleLoading = true
-        controller.loadPeople(search) { result, error ->
+        controller.loadPeople(search, peopleIntent.takeUnless { it == "all" }, peopleAvailableNow) { result, error ->
             people = result
             peopleError = error
             peopleLoading = false
+        }
+    }
+
+    fun loadAvailability() {
+        controller.loadSocialAvailability { loaded, error ->
+            myAvailability = loaded
+            availabilityError = error
+        }
+    }
+
+    fun setAvailability(intent: String, duration: Int, note: String) {
+        if (availabilityBusy) return
+        availabilityBusy = true
+        availabilityError = null
+        controller.updateSocialAvailability(intent, duration, note) { loaded, error ->
+            availabilityBusy = false
+            if (error != null) availabilityError = error
+            else { myAvailability = loaded; loadPeople() }
+        }
+    }
+
+    fun clearAvailability() {
+        if (availabilityBusy) return
+        availabilityBusy = true
+        controller.clearSocialAvailability { error ->
+            availabilityBusy = false
+            if (error != null) availabilityError = error
+            else { myAvailability = null; loadPeople() }
         }
     }
 
@@ -611,7 +647,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         onClick = { controller.closeMessenger(); section = AppSection.SPACES },
                         icon = { Icon(painterResource(R.drawable.ic_spaces), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Пространства", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.PEOPLE || section == AppSection.FRIENDSHIPS,
-                        onClick = { controller.closeMessenger(); section = AppSection.PEOPLE; loadPeople() },
+                        onClick = { controller.closeMessenger(); section = AppSection.PEOPLE; loadPeople(); loadAvailability() },
                         icon = { Icon(painterResource(R.drawable.ic_people), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Люди", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.MESSENGER,
                         onClick = { section = AppSection.MESSENGER; loadDialogsAndConnect() },
@@ -629,7 +665,19 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             when (section) {
                 AppSection.SPACES -> SpacesContent(state, controller, onState, ::openSpace)
-                AppSection.PEOPLE -> PeopleContent(people, peopleLoading, peopleError, search, { search = it }, ::loadPeople, { section = AppSection.FRIENDSHIPS; loadFriendships() }) { selected ->
+                AppSection.PEOPLE -> PeopleContent(
+                    people, peopleLoading, peopleError, search, { search = it },
+                    peopleIntent, peopleAvailableNow,
+                    onIntentChange = { peopleIntent = it; loadPeople() },
+                    onAvailableChange = { peopleAvailableNow = it; loadPeople() },
+                    availability = myAvailability,
+                    availabilityBusy = availabilityBusy,
+                    availabilityError = availabilityError,
+                    onSaveAvailability = ::setAvailability,
+                    onClearAvailability = ::clearAvailability,
+                    onSearch = ::loadPeople,
+                    onFriendships = { section = AppSection.FRIENDSHIPS; loadFriendships() },
+                ) { selected ->
                     personReturnSection = AppSection.PEOPLE
                     personRelationship = null
                     personRelationError = null
@@ -822,9 +870,38 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
 }
 
 @Composable
-private fun PeopleContent(people: List<PubChatApi.PersonSummary>, loading: Boolean, error: String?, query: String, onQuery: (String) -> Unit, onSearch: () -> Unit, onFriendships: () -> Unit, onOpen: (PubChatApi.PersonSummary) -> Unit) {
+private fun PeopleContent(
+    people: List<PubChatApi.PersonSummary>,
+    loading: Boolean,
+    error: String?,
+    query: String,
+    onQuery: (String) -> Unit,
+    intent: String,
+    availableNow: Boolean,
+    onIntentChange: (String) -> Unit,
+    onAvailableChange: (Boolean) -> Unit,
+    availability: PubChatApi.SocialAvailability?,
+    availabilityBusy: Boolean,
+    availabilityError: String?,
+    onSaveAvailability: (String, Int, String) -> Unit,
+    onClearAvailability: () -> Unit,
+    onSearch: () -> Unit,
+    onFriendships: () -> Unit,
+    onOpen: (PubChatApi.PersonSummary) -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         OutlinedButton(onClick = onFriendships, modifier = Modifier.fillMaxWidth()) { Text("Друзья и заявки") }
+        SocialAvailabilityControls(
+            intent = intent,
+            availableNow = availableNow,
+            onIntentChange = onIntentChange,
+            onAvailableChange = onAvailableChange,
+            availability = availability,
+            busy = availabilityBusy,
+            error = availabilityError,
+            onSave = onSaveAvailability,
+            onClear = onClearAvailability,
+        )
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(query, onQuery, Modifier.weight(1f), label = { Text("Имя или @handle") }, singleLine = true)
             TextButton(onClick = onSearch) { Text("Найти") }
@@ -843,7 +920,10 @@ private fun PeopleContent(people: List<PubChatApi.PersonSummary>, loading: Boole
                             }
                         }
                         person.bio?.let { Text(it, Modifier.padding(top = 8.dp)) }
-                        person.socialIntent?.let { Text(intentLabel(it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
+                        person.liveIntent?.let {
+                            Text("● Сейчас: ${intentLabel(it)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        } ?: person.socialIntent?.let { Text(intentLabel(it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
+                        person.liveNote?.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
             }

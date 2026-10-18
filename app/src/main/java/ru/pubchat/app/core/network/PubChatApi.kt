@@ -58,6 +58,8 @@ class PubChatApi(
         val country: String?,
         val avatar: String?,
         val socialIntent: String?,
+        val liveIntent: String? = null,
+        val liveNote: String? = null,
     )
 
     data class FriendshipEntry(
@@ -236,9 +238,31 @@ class PubChatApi(
             ?: error("Не удалось прочитать ответ сервера")
     }
 
-    fun people(query: String = ""): List<PersonSummary> {
+    data class SocialAvailability(val intent: String, val note: String?, val expiresAt: String)
+
+    fun mySocialAvailability(): SocialAvailability? =
+        parseSocialAvailability(JSONObject(request("GET", "/social/v1/availability/me").body).optJSONObject("availability"))
+
+    fun setSocialAvailability(intent: String, durationMinutes: Int, note: String): SocialAvailability? {
+        require(intent in setOf("open", "meet", "games")) { "Недопустимое намерение" }
+        require(durationMinutes in setOf(30, 120, 480)) { "Недопустимая длительность" }
+        val payload = JSONObject().put("intent", intent).put("duration_minutes", durationMinutes)
+            .put("note", note.take(120).trim())
+        return parseSocialAvailability(JSONObject(request("PUT", "/social/v1/availability/me", payload).body).optJSONObject("availability"))
+    }
+
+    fun clearSocialAvailability() {
+        request("DELETE", "/social/v1/availability/me")
+    }
+
+    fun people(query: String = "", intent: String? = null, availableNow: Boolean = false): List<PersonSummary> {
+
         val encoded = java.net.URLEncoder.encode(query.trim(), Charsets.UTF_8.name())
-        val suffix = if (encoded.isBlank()) "" else "&q=$encoded"
+        val suffix = buildString {
+            if (encoded.isNotBlank()) append("&q=$encoded")
+            if (intent in setOf("open", "meet", "games", "friends", "quiet")) append("&social_intent=$intent")
+            if (availableNow) append("&available_now=true")
+        }
         val root = JSONObject(request("GET", "/social/v1/discover?limit=50$suffix").body)
         val items = root.optJSONArray("people") ?: JSONArray()
         return buildList {
@@ -490,6 +514,8 @@ class PubChatApi(
         country = item.optNullableString("country"),
         avatar = item.optNullableString("avatar"),
         socialIntent = item.optNullableString("social_intent"),
+        liveIntent = item.optJSONObject("availability")?.optNullableString("intent"),
+        liveNote = item.optJSONObject("availability")?.optNullableString("note"),
     )
 
     private fun parseSpaces(items: JSONArray): List<SpaceSummary> = buildList {
@@ -619,4 +645,16 @@ internal fun parseFriendshipPage(body: String, key: String): PubChatApi.Friendsh
         }
     }
     return PubChatApi.FriendshipPage(rows, root.optJSONObject("pagination")?.optInt("total", rows.size) ?: rows.size)
+}
+
+internal fun parseSocialAvailability(value: JSONObject?): PubChatApi.SocialAvailability? {
+    value ?: return null
+    val intent = value.optString("intent")
+    val expiresAt = value.optString("expires_at")
+    if (intent.isBlank() || expiresAt.isBlank()) return null
+    return PubChatApi.SocialAvailability(
+        intent = intent,
+        note = value.optString("note").takeIf { it.isNotBlank() },
+        expiresAt = expiresAt,
+    )
 }
