@@ -65,6 +65,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.firebase:firebase-messaging:24.1.2")
+    implementation("io.github.webrtc-sdk:android:125.6422.07")
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

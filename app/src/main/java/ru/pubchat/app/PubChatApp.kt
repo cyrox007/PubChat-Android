@@ -2,6 +2,14 @@ package ru.pubchat.app
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.app.Activity
+import android.content.pm.PackageManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -163,12 +171,23 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var selectedMessageUid by remember { mutableStateOf<String?>(null) }
     var actionMode by remember { mutableStateOf<String?>(null) }
     var actionDraft by remember { mutableStateOf("") }
+    var callPhase by remember { mutableStateOf("idle") }
+    var callPeer by remember { mutableStateOf<String?>(null) }
+    var callMode by remember { mutableStateOf("audio") }
+    var callMuted by remember { mutableStateOf(false) }
+    val callActivity = LocalContext.current as? Activity
     var notices by remember { mutableStateOf<List<PubChatApi.Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
     var noticesError by remember { mutableStateOf<String?>(null) }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(controller) {
+        controller.connectCalls { phase, peer, mode ->
+            callPhase = phase
+            if (peer != null) callPeer = peer
+            callMode = mode
+        }
         onDispose {
+            controller.disconnectCalls()
             controller.closeSpace()
             controller.closeMessenger()
         }
@@ -285,6 +304,79 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         }
     }
 
+    fun hasCallPermissions(video: Boolean): Boolean {
+        val activity = callActivity ?: return false
+        val permissions = if (video) arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
+            else arrayOf(Manifest.permission.RECORD_AUDIO)
+        val missing = permissions.filter { activity.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) {
+            activity.requestPermissions(missing.toTypedArray(), 4021)
+            return false
+        }
+        return true
+    }
+
+    if (callPhase !in listOf("idle", "ended")) {
+        AlertDialog(
+            onDismissRequest = { if (callPhase == "error" || callPhase == "disconnected") { controller.endCall(); callPhase = "idle" } },
+            title = { Text(if (callMode == "video") "Видеозвонок PubChat" else "Голосовой звонок PubChat") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Участник: ${callPeer ?: "PubChat"}")
+                    Text(when (callPhase) {
+                        "incoming" -> "Входящий вызов"
+                        "outgoing" -> "Вызываем…"
+                        "connecting" -> "Соединяем…"
+                        "active" -> "На связи · WebRTC DTLS-SRTP"
+                        "error", "disconnected" -> "Не удалось установить соединение"
+                        else -> "Подключение…"
+                    })
+                    Text("Медиа шифруется транспортом WebRTC. Проверенного E2EE звонка пока нет.",
+                        style = MaterialTheme.typography.bodySmall)
+                    if (callMode == "video" && callPhase in listOf("connecting", "video_track", "active")) {
+                        val eglContext = controller.callVideoContext()
+                        if (eglContext != null) {
+                            val androidContext = LocalContext.current
+                            val renderer = remember(eglContext) {
+                                org.webrtc.SurfaceViewRenderer(androidContext).apply {
+                                    init(eglContext, null)
+                                    setMirror(false)
+                                }
+                            }
+                            DisposableEffect(renderer) {
+                                controller.attachRemoteVideo(renderer)
+                                onDispose {
+                                    controller.detachRemoteVideo(renderer)
+                                    renderer.release()
+                                }
+                            }
+                            AndroidView(factory = { renderer }, modifier = Modifier.fillMaxWidth().height(200.dp))
+                        }
+                    }
+                    if (callPhase == "active" || callPhase == "video_track") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { callMuted = !callMuted; controller.setCallMuted(callMuted) }) {
+                                Text(if (callMuted) "Включить микрофон" else "Выключить микрофон")
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (callPhase == "incoming") {
+                    TextButton(onClick = { if (hasCallPermissions(callMode == "video")) controller.acceptCall() }) {
+                        Text("Ответить")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { controller.endCall(decline = callPhase == "incoming"); callPhase = "idle" }) {
+                    Text(if (callPhase == "incoming") "Отклонить" else "Завершить")
+                }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             Row(
@@ -365,6 +457,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) draft = "" else chatError = "Соединение ещё не готово"
                 }
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
+                    onCall = { video ->
+                        val peer = activeDialog?.partnerUid
+                        if (peer != null && hasCallPermissions(video)) controller.startCall(peer, video)
+                    },
                     dialog = activeDialog,
                     messages = conversations[activeDialog?.partnerUid].orEmpty(),
                     currentAccountUid = state.accountUid,
@@ -525,6 +621,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
 
 @Composable
 private fun MessengerChatContent(
+    onCall: (Boolean) -> Unit,
     dialog: PubChatApi.DialogSummary?,
     messages: List<PubChatApi.ChatMessage>,
     currentAccountUid: String,
@@ -542,7 +639,11 @@ private fun MessengerChatContent(
     onAction: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
-        dialog?.handle?.let { Text("@$it", Modifier.padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            dialog?.handle?.let { Text("@$it", Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            TextButton(onClick = { onCall(false) }, enabled = dialog != null && connection == "connected") { Text("☎") }
+            TextButton(onClick = { onCall(true) }, enabled = dialog != null && connection == "connected") { Text("Видео") }
+        }
         error?.let { Text(it, Modifier.padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Можно начать с простого «привет»." else "Загружаем личный разговор…") }
