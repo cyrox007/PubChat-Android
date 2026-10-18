@@ -1,6 +1,8 @@
 package ru.pubchat.app
 
 import android.content.Context
+import ru.pubchat.app.core.calls.CallSignaling
+import ru.pubchat.app.core.calls.NativeCallEngine
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -41,6 +43,10 @@ class AppController(context: Context) {
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var realtime: SpaceRealtimeClient? = null
+    private var callSocket: CallSignaling? = null
+    private var callEngine: NativeCallEngine? = null
+    private var offerPending: JSONObject? = null
+    private var callStatusCallback: ((String, String?, String) -> Unit)? = null
     private var messengerRealtime: MessengerRealtimeClient? = null
 
     fun bootstrap(onState: (AppState) -> Unit) {
@@ -310,6 +316,123 @@ class AppController(context: Context) {
         }
     }
 
+
+    fun connectCalls(onStatus: (String, String?, String) -> Unit) {
+        callStatusCallback = onStatus
+        if (callSocket != null) return
+        executor.execute {
+            runCatching { authenticated { api.messengerRealtimeTicket() } }
+                .onSuccess { ticket -> main.post {
+                    if (callSocket != null) return@post
+                    val socket = CallSignaling(
+                        onSignal = { frame -> main.post { handleCallSignal(frame) } },
+                        onStatus = { status -> main.post {
+                            if (status == "disconnected") {
+                                callEngine?.end(false)
+                                callStatusCallback?.invoke("disconnected", null, "audio")
+                                callSocket?.destroy()
+                                callSocket = null
+                            }
+                        } },
+                    )
+                    callSocket = socket
+                    callEngine = NativeCallEngine(appContext,
+                        sendSignal = { peer, uid, action, payload -> callSocket?.send(peer, uid, action, payload) == true },
+                        status = { phase -> main.post {
+                            if (phase != "idle") callStatusCallback?.invoke(phase, callEngine?.peerUid, callEngine?.mode ?: "audio")
+                        } },
+                    )
+                    socket.connect(ticket)
+                } }
+                .onFailure { main.post { onStatus("unavailable", null, "audio") } }
+        }
+    }
+
+    private fun handleCallSignal(frame: JSONObject) {
+        when (frame.optString("type")) {
+            "call_error" -> callStatusCallback?.invoke("error", callEngine?.peerUid, callEngine?.mode ?: "audio")
+            "call_signal" -> {
+                val peer = frame.optString("from_uid")
+                val uid = frame.optString("call_uid")
+                when (frame.optString("signal_type")) {
+                    "call_offer" -> {
+                        if (callEngine?.callUid != null || offerPending != null) {
+                            callSocket?.send(peer, uid, "call_decline", JSONObject().put("reason", "busy"))
+                        } else {
+                            offerPending = frame
+                            callStatusCallback?.invoke("incoming", peer, frame.optString("mode", "audio"))
+                        }
+                    }
+                    "call_answer" -> if (uid == callEngine?.callUid) callEngine?.acceptAnswer(frame.optJSONObject("sdp") ?: JSONObject())
+                    "call_ice" -> if (uid == callEngine?.callUid) frame.optJSONObject("candidate")?.let { callEngine?.addIce(it) }
+                    "call_decline", "call_end" -> if (uid == callEngine?.callUid || uid == offerPending?.optString("call_uid")) {
+                        offerPending = null
+                        callEngine?.end(false)
+                        callStatusCallback?.invoke("ended", peer, "audio")
+                    }
+                }
+            }
+        }
+    }
+
+    fun startCall(peer: String, video: Boolean) {
+        executor.execute {
+            runCatching { authenticated { api.callIceConfig() } }
+                .onSuccess { ice -> main.post {
+                    runCatching {
+                        require(callSocket != null) { "Нет соединения для звонков" }
+                        callEngine?.begin(peer, video, ice)
+                        callStatusCallback?.invoke("outgoing", peer, if (video) "video" else "audio")
+                        callEngine?.offer()
+                    }.onFailure { callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") }
+                } }
+                .onFailure { main.post { callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") } }
+        }
+    }
+
+    fun acceptCall() {
+        val frame = offerPending ?: return
+        offerPending = null
+        val peer = frame.optString("from_uid")
+        val mode = frame.optString("mode", "audio")
+        executor.execute {
+            runCatching { authenticated { api.callIceConfig() } }
+                .onSuccess { ice -> main.post {
+                    runCatching {
+                        callEngine?.begin(peer, mode == "video", ice, frame.optString("call_uid"))
+                        callStatusCallback?.invoke("connecting", peer, mode)
+                        callEngine?.answer(frame.optJSONObject("sdp") ?: JSONObject())
+                    }.onFailure { callStatusCallback?.invoke("error", peer, mode) }
+                } }
+                .onFailure { main.post {
+                    callSocket?.send(peer, frame.optString("call_uid"), "call_decline", JSONObject().put("reason", "media_unavailable"))
+                    callStatusCallback?.invoke("error", peer, mode)
+                } }
+        }
+    }
+
+    fun endCall(decline: Boolean = false) {
+        val pending = offerPending
+        if (pending != null) {
+            callSocket?.send(pending.optString("from_uid"), pending.optString("call_uid"),
+                "call_decline", JSONObject().put("reason", "declined"))
+        } else callEngine?.end(!decline)
+        offerPending = null
+        callStatusCallback?.invoke("ended", null, "audio")
+    }
+
+    fun setCallMuted(muted: Boolean) { callEngine?.mute(muted) }
+    fun setCallCamera(enabled: Boolean) { callEngine?.camera(enabled) }
+
+    fun disconnectCalls() {
+        callEngine?.end(false)
+        callEngine = null
+        callSocket?.destroy()
+        callSocket = null
+        callStatusCallback = null
+        offerPending = null
+    }
+
     fun closeSpace() {
         realtime?.close()
         realtime = null
@@ -323,6 +446,7 @@ class AppController(context: Context) {
     fun logout(onState: (AppState) -> Unit) {
         closeSpace()
         closeMessenger()
+        disconnectCalls()
         executor.execute {
             runCatching { api.removeNativePush(session.deviceUid) }
             runCatching { api.logout() }
@@ -334,6 +458,7 @@ class AppController(context: Context) {
     fun close() {
         closeSpace()
         closeMessenger()
+        disconnectCalls()
         executor.shutdownNow()
     }
 
