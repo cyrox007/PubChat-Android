@@ -115,6 +115,31 @@ class NativeCallEngine(
         }
     }
 
+    fun restartIce(): Boolean {
+        val pc = connection ?: return false
+        if (pc.signalingState() != PeerConnection.SignalingState.STABLE) return false
+        val options = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
+        }
+        pc.createOffer(sdpObserver { description ->
+            pc.setLocalDescription(sdpObserver(), description)
+            sendDescription("call_offer", description, JSONObject()
+                .put("mode", mode).put("ice_restart", true))
+        }, options)
+        return true
+    }
+
+    fun answerRestart(offer: JSONObject) {
+        val pc = connection ?: return
+        if (pc.signalingState() != PeerConnection.SignalingState.STABLE) return
+        setRemote(offer) {
+            pc.createAnswer(sdpObserver { description ->
+                pc.setLocalDescription(sdpObserver(), description)
+                sendDescription("call_answer", description)
+            }, MediaConstraints())
+        }
+    }
+
     fun offer() {
         connection?.createOffer(sdpObserver { description ->
             connection?.setLocalDescription(sdpObserver(), description)
