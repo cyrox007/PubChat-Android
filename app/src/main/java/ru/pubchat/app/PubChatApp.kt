@@ -79,6 +79,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.ui.components.SocialAvailabilityControls
 import ru.pubchat.app.ui.components.FriendshipHubContent
 import ru.pubchat.app.ui.components.RoomMessageCard
 import ru.pubchat.app.ui.components.RoomControlPanel
