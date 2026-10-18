@@ -174,6 +174,8 @@ class PubChatApi(
 
     fun messengerRealtimeTicket(): RealtimeTicket = realtimeTicket("messenger", null)
 
+    fun callIceConfig(): JSONObject = JSONObject(request("GET", "/calls/v1/ice-config").body)
+
     fun editPrivateMessage(messageUid: String, content: String) {
         request("PATCH", "/messages/v2/messenger/$messageUid", JSONObject().put("content", content.trim()))
     }
