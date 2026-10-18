@@ -155,8 +155,22 @@ private fun AuthScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             item {
-                Text("PubChat", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                Text("Живые пространства и разговоры", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Box(
+                        Modifier.size(68.dp).clip(RoundedCornerShape(19.dp))
+                            .background(androidx.compose.ui.graphics.Brush.linearGradient(
+                                listOf(MaterialTheme.colorScheme.primary, androidx.compose.ui.graphics.Color(0xFF06C7EC))
+                            )), contentAlignment = Alignment.Center,
+                    ) {
+                        Text("P", fontWeight = FontWeight.ExtraBold, fontSize = 40.sp,
+                            color = androidx.compose.ui.graphics.Color.White)
+                    }
+                    Column {
+                        Text("PubChat", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                        Text("Больше, чем чат.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Text("Люди. Сообщества. Возможности.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(24.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (registration) OutlinedButton(onClick = { registration = false }) { Text("Вход") } else Button(onClick = {}) { Text("Вход") }
