@@ -256,6 +256,40 @@ class AppController(context: Context) {
         }
     }
 
+    fun loadRelationship(
+        accountUid: String,
+        onResult: (PubChatApi.SocialRelationship?, String?) -> Unit,
+    ) = socialAction(onResult) { api.relationship(accountUid) }
+
+    fun setFollowing(
+        accountUid: String,
+        currentlyFollowing: Boolean,
+        onResult: (PubChatApi.SocialRelationship?, String?) -> Unit,
+    ) = socialAction(onResult) { api.setFollowing(accountUid, currentlyFollowing) }
+
+    fun friendAction(
+        accountUid: String,
+        action: String,
+        onResult: (PubChatApi.SocialRelationship?, String?) -> Unit,
+    ) = socialAction(onResult) { api.friendAction(accountUid, action) }
+
+    fun setBlocked(
+        accountUid: String,
+        currentlyBlocked: Boolean,
+        onResult: (PubChatApi.SocialRelationship?, String?) -> Unit,
+    ) = socialAction(onResult) { api.setBlocked(accountUid, currentlyBlocked) }
+
+    private fun socialAction(
+        onResult: (PubChatApi.SocialRelationship?, String?) -> Unit,
+        action: () -> PubChatApi.SocialRelationship,
+    ) {
+        executor.execute {
+            runCatching { authenticated(action) }
+                .onSuccess { result -> main.post { onResult(result, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
     fun loadNotifications(onResult: (List<PubChatApi.Notice>, String?) -> Unit) {
         executor.execute {
             runCatching { authenticated { api.notifications() } }
