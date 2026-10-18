@@ -67,8 +67,10 @@ jobs:
             grep -q 'com.google.gms:google-services:4.4.2' firebase-configuration.txt
             grep -q 'processDebugGoogleServices' firebase-configuration.txt
           else
-            ! grep -q 'com.google.gms:google-services' firebase-configuration.txt
-            ! grep -q 'processDebugGoogleServices' firebase-configuration.txt
+            if grep -Eq 'com.google.gms:google-services|process(Debug|Release)GoogleServices' firebase-configuration.txt; then
+              echo 'Firebase plugin must not be resolved or applied without configuration'
+              exit 1
+            fi
           fi
       - name: Verify Firebase resources for debug and release
         if: matrix.firebase == 'enabled'
