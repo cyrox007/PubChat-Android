@@ -11,6 +11,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import org.json.JSONObject
@@ -81,14 +84,15 @@ internal fun RoomControlPanel(
         }) { Text("Применить") } }, dismissButton = { TextButton(onClick = { moderationTarget = null }) { Text("Отмена") } })
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(Modifier.fillMaxSize().padding(start = 12.dp), shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("О пространстве", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(space.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("О пространстве", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(space.name, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                     }
-                    TextButton(onClick = onClose) { Text("К разговору") }
+                    if (manager) TextButton(onClick = { tab = "settings" }, contentPadding = PaddingValues(6.dp), modifier = Modifier.height(32.dp)) { Text("Настройки", fontSize = 11.sp) }
+                    TextButton(onClick = onClose, contentPadding = PaddingValues(6.dp), modifier = Modifier.height(32.dp)) { Text("Закрыть", fontSize = 11.sp) }
                 }
                 val tabs = listOf("overview" to "Обзор", "people" to "Люди") +
                     (if (manager) listOf("requests" to "Заявки") else emptyList()) +
@@ -98,8 +102,10 @@ internal fun RoomControlPanel(
                     tabs.chunked(3).forEach { group ->
                         Row(Modifier.fillMaxWidth()) {
                             group.forEach { (key, title) ->
-                                if (key == tab) FilledTonalButton(onClick = { tab = key }, modifier = Modifier.weight(1f).padding(3.dp)) { Text(title) }
-                                else TextButton(onClick = { tab = key }, modifier = Modifier.weight(1f)) { Text(title) }
+                                TextButton(onClick = { tab = key }, contentPadding = PaddingValues(horizontal = 3.dp), modifier = Modifier.weight(1f).height(32.dp)
+                                    .background(if (key == tab) MaterialTheme.colorScheme.primary.copy(alpha = .10f) else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(6.dp))) {
+                                    Text(title, fontSize = 12.sp, color = if (key == tab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                     }
@@ -107,19 +113,23 @@ internal fun RoomControlPanel(
                 error?.let { Text(it, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error) }
                 notice?.let { Text(it, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.primary) }
                 if (loading || busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (tab == "overview") {
                         item {
-                            Text(space.description ?: "Описание пока не добавлено")
-                            Text("Участники: ${space.memberCount} / ${space.memberLimit}", Modifier.padding(vertical = 8.dp))
-                            Text("Ваша роль: ${when { owner -> "Создатель"; manager -> "Модератор"; else -> "Участник" }}")
+                            Text(space.description ?: "Описание пока не добавлено", fontSize = 13.sp)
+                            Text("Участники: ${space.memberCount} / ${space.memberLimit}", Modifier.padding(vertical = 8.dp), fontSize = 12.sp)
+                            Text("Ваша роль: ${when { owner -> "Создатель"; manager -> "Модератор"; else -> "Участник" }}", fontSize = 12.sp)
                         }
-                        if (manager) item {
+                    }
+                    if (tab == "settings" && manager) {
+                        item {
                             Text("Управление пространством", style = MaterialTheme.typography.titleMedium)
                             OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Название") })
                             OutlinedTextField(description, { description = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("Описание") }, minLines = 3)
                             Button(enabled = !busy && name.trim().length >= 3, onClick = { action("save", value = name, detail = description) }) { Text("Сохранить") }
                         }
+                    }
+                    if (tab == "overview" || tab == "settings") {
                         item {
                             if (!owner) OutlinedButton(enabled = !busy, onClick = {
                                 confirm("Покинуть ${space.name}? Чтобы вернуться, нужно будет вступить снова.") { action("leave", done = onLeft) }

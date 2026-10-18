@@ -16,6 +16,9 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import ru.pubchat.app.BuildConfig
@@ -51,38 +54,38 @@ internal fun RoomMessageCard(
     onSelect: (() -> Unit)? = null,
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (own) Arrangement.End else Arrangement.Start) {
-        Card(Modifier.widthIn(max = 340.dp).let { if (onSelect != null) it.clickable(onClick = onSelect) else it },
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
-            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        Surface(Modifier.widthIn(max = 310.dp).let { if (onSelect != null) it.clickable(onClick = onSelect) else it },
+            shape = RoundedCornerShape(12.dp),
+            color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
+            Column(Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val avatar = publicMediaUrl(message.senderAvatar)
-                    Box(Modifier.size(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
-                        Text(message.senderName?.take(1)?.uppercase() ?: "?", color = MaterialTheme.colorScheme.primary)
+                    if (!own) Box(Modifier.size(22.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
+                        Text(message.senderName?.take(1)?.uppercase() ?: "?", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                         if (avatar != null) AsyncImage(avatar, "Аватар автора", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
                     Text(message.senderName ?: if (own) "Вы" else "Участник", color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
-                    if (onReply != null) TextButton(onClick = onReply, contentPadding = PaddingValues(2.dp), modifier = Modifier.height(28.dp)) { Text("↩", style = MaterialTheme.typography.titleMedium) }
+                        fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false), maxLines = 1)
+                    Text(messageTime(message.createdAt) + if (own) (if (message.isRead) " ✓✓" else " ✓") else "",
+                        fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (onReply != null) Box(Modifier.size(26.dp).semantics { contentDescription = "Ответить на сообщение" }.clickable(onClick = onReply), contentAlignment = Alignment.Center) {
+                        Text("↩", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 if (message.replyToUid != null) {
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp)).background(MaterialTheme.colorScheme.background.copy(alpha = .55f))
-                        .let { if (onReplyJump != null) it.clickable(onClick = onReplyJump) else it }.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.width(3.dp).height(35.dp).background(MaterialTheme.colorScheme.primary))
+                        .let { if (onReplyJump != null) it.clickable(onClick = onReplyJump) else it }.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Box(Modifier.width(2.dp).height(30.dp).background(MaterialTheme.colorScheme.primary))
                         Column {
-                            Text("↪ ${message.replySenderName ?: replySource?.senderName ?: "Ответ на сообщение"}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
-                            Text(message.replyContent ?: replySource?.content ?: "Исходное сообщение недоступно", maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                            Text("↪ ${message.replySenderName ?: replySource?.senderName ?: "Ответ на сообщение"}", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp)
+                            Text(message.replyContent ?: replySource?.content ?: "Исходное сообщение недоступно", maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, lineHeight = 15.sp)
                         }
                     }
                 }
                 if (message.contentType == "deleted") Text("Сообщение удалено", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else {
                     message.attachments.forEach { attachment -> MessageAttachment(attachment, message.contentType) }
-                    if (message.content.isNotBlank() && message.attachments.none { it.url == message.content }) Text(message.content, style = MaterialTheme.typography.bodyMedium)
-                }
-                Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(messageTime(message.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (own) Text(if (message.isRead) "✓✓" else "✓", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (message.content.isNotBlank() && message.attachments.none { it.url == message.content }) Text(message.content, fontSize = 14.sp, lineHeight = 18.sp)
                 }
             }
         }
@@ -114,7 +117,7 @@ private fun AudioMessage(url: String) {
     var state by remember(url) { mutableStateOf("idle") }
     var duration by remember(url) { mutableStateOf(0) }
     DisposableEffect(url) { onDispose { player?.release() } }
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         TextButton(onClick = {
             if (state == "playing") { player?.pause(); state = "paused" }
             else if (state == "paused") { player?.start(); state = "playing" }
@@ -130,7 +133,7 @@ private fun AudioMessage(url: String) {
                     }
                 }.onFailure { state = "error" }
             }
-        }, enabled = state != "loading") { Text(if (state == "playing") "Ⅱ Пауза" else if (state == "loading") "Загрузка…" else "▶ Слушать") }
-        Text(if (state == "error") "Не удалось воспроизвести" else if (duration > 0) "%d:%02d".format(duration / 60, duration % 60) else "Голосовое сообщение", style = MaterialTheme.typography.bodySmall)
+        }, enabled = state != "loading", contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp), modifier = Modifier.height(32.dp)) { Text(if (state == "playing") "Ⅱ" else if (state == "loading") "…" else "▶", fontSize = 18.sp) }
+        Text(if (state == "error") "Не удалось воспроизвести" else if (duration > 0) "%d:%02d".format(duration / 60, duration % 60) else "Голосовое сообщение", fontSize = 12.sp)
     }
 }

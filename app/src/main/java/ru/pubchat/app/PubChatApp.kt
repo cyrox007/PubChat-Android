@@ -59,6 +59,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
 import ru.pubchat.app.ui.components.RoomMessageCard
@@ -455,11 +469,12 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     Scaffold(
         topBar = {
             Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().statusBarsPadding().background(MaterialTheme.colorScheme.surface).padding(horizontal = 8.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column(Modifier.weight(1f)) {
+                if (section == AppSection.SPACE) IconButton(onClick = { controller.closeSpace(); section = AppSection.SPACES }, modifier = Modifier.size(40.dp).semantics { contentDescription = "К списку пространств" }) { Text("‹", fontSize = 30.sp) }
+                Column(Modifier.weight(1f).let { if (section == AppSection.SPACE) it.clickable { showRoomPanel = true } else it }) {
                     Text(
                         when (section) {
                             AppSection.SPACES -> "Пространства"
@@ -471,19 +486,19 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             AppSection.SPACE -> activeSpace?.name ?: "Пространство"
                             AppSection.MESSENGER_CHAT -> activeDialog?.displayName ?: "Разговор"
                         },
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     when (section) {
-                        AppSection.SPACE -> Text(connectionLabel(connection), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        AppSection.SPACE -> Text("● ${connectionLabel(connection)}", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
                         AppSection.MESSENGER, AppSection.MESSENGER_CHAT -> Text(connectionLabel(messengerConnection), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         else -> Text("@${state.handle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if (section == AppSection.SPACE) {
-                    TextButton(onClick = { showRoomPanel = true }, enabled = activeSpace != null) { Text("О комнате") }
+                    TextButton(onClick = { showRoomPanel = true }, enabled = activeSpace != null, contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.height(38.dp)) { Text("О комнате", fontSize = 12.sp) }
                 }
-                if (section == AppSection.SPACE || section == AppSection.PERSON || section == AppSection.MESSENGER_CHAT) {
+                if (section == AppSection.PERSON || section == AppSection.MESSENGER_CHAT) {
                     TextButton(onClick = {
                         when (section) {
                             AppSection.SPACE -> { controller.closeSpace(); section = AppSection.SPACES }
@@ -719,9 +734,9 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
         }
     }
     Column(Modifier.fillMaxSize()) {
-        space?.description?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        space?.description?.let { Text(it, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), fontSize = 11.sp, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         error?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Здесь пока тихо. Начните разговор." else "Подключаем разговор…") }
             items(messages, key = PubChatApi.ChatMessage::uid) { message ->
                 val source = messages.find { it.uid == message.replyToUid }
@@ -741,7 +756,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             TextButton(onClick = onCancelReply, enabled = !sending) { Text("Отмена") }
         }
         Row(Modifier.fillMaxWidth().navigationBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected" && reply == null && !sending) { Text("＋", style = MaterialTheme.typography.titleLarge) }
+            IconButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected" && reply == null && !sending, modifier = Modifier.size(40.dp).semantics { contentDescription = "Прикрепить файл" }) { Text("＋", fontSize = 23.sp) }
             Box(Modifier.weight(1f)) { Composer(draft, onDraft, connection == "connected" && !sending, onSend) }
         }
     }
@@ -833,19 +848,23 @@ private fun MessageCard(message: PubChatApi.ChatMessage, own: Boolean, onClick: 
 
 @Composable
 private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean, onSend: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
+    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        BasicTextField(
             value = draft,
             onValueChange = onDraft,
-            modifier = Modifier.weight(1f),
-            placeholder = { Text(if (enabled) "Написать сообщение…" else "Ожидаем соединение…") },
-            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp)).heightIn(min = 40.dp, max = 120.dp).padding(horizontal = 12.dp, vertical = 9.dp),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp),
+            decorationBox = { field -> Box { if (draft.isEmpty()) Text(if (enabled) "Сообщение…" else "Соединение…", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); field() } },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { if (enabled && draft.isNotBlank()) onSend() }),
             maxLines = 5,
             enabled = enabled,
         )
-        Button(onClick = onSend, enabled = enabled && draft.isNotBlank(),
-            shape = RoundedCornerShape(20.dp)) { Text("➤") }
+        IconButton(onClick = onSend, enabled = enabled && draft.isNotBlank(), modifier = Modifier.size(40.dp).clip(RoundedCornerShape(20.dp))
+            .background(if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+            .semantics { contentDescription = "Отправить сообщение" }) { Text("↑", fontSize = 23.sp, color = if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
