@@ -106,7 +106,22 @@ fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onD
 
 @Composable
 private fun LoadingScreen() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    Box(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("◉", fontSize = 58.sp, color = MaterialTheme.colorScheme.primary)
+            Text("PubChat", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Люди. Сообщества. Возможности.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            CircularProgressIndicator(Modifier.padding(top = 18.dp))
+            Text("Загрузка…", style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }
 
 @Composable
@@ -628,7 +643,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             AppSection.PEOPLE -> "Люди"
                             AppSection.FRIENDSHIPS -> "Друзья и заявки"
                             AppSection.MESSENGER -> "Сообщения"
-                            AppSection.NOTIFICATIONS -> "Уведомления"
+                            AppSection.NOTIFICATIONS -> "Активность"
                             AppSection.PROFILE -> "Профиль"
                             AppSection.PERSON -> person?.displayName ?: "Образ"
                             AppSection.SPACE -> activeSpace?.name ?: "Пространство"
