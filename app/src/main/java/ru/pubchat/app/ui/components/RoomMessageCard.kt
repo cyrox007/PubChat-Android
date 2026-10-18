@@ -56,7 +56,7 @@ internal fun RoomMessageCard(
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (own) Arrangement.End else Arrangement.Start) {
         Surface(Modifier.widthIn(max = 310.dp).let { if (onSelect != null) it.clickable(onClick = onSelect) else it },
             shape = RoundedCornerShape(12.dp),
-            color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
+            color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface) {
             Column(Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val avatar = publicMediaUrl(message.senderAvatar)
@@ -73,7 +73,7 @@ internal fun RoomMessageCard(
                     }
                 }
                 if (message.replyToUid != null) {
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp)).background(MaterialTheme.colorScheme.background.copy(alpha = .55f))
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = .65f))
                         .let { if (onReplyJump != null) it.clickable(onClick = onReplyJump) else it }.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Box(Modifier.width(2.dp).height(30.dp).background(MaterialTheme.colorScheme.primary))
                         Column {

@@ -27,7 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -490,7 +490,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         fontWeight = FontWeight.SemiBold,
                     )
                     when (section) {
-                        AppSection.SPACE -> Text("● ${connectionLabel(connection)}", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                        AppSection.SPACE -> Text("● ${connectionLabel(connection)}", fontSize = 10.sp, color = if (connection == "connected") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
                         AppSection.MESSENGER, AppSection.MESSENGER_CHAT -> Text(connectionLabel(messengerConnection), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         else -> Text("@${state.handle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -514,7 +514,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         },
         bottomBar = {
             if (section !in listOf(AppSection.SPACE, AppSection.PERSON, AppSection.MESSENGER_CHAT)) {
-                NavigationBar(modifier = Modifier.navigationBarsPadding(), containerColor = MaterialTheme.colorScheme.surface) {
+                NavigationBar( containerColor = MaterialTheme.colorScheme.surface) {
                     NavigationBarItem(selected = section == AppSection.SPACES,
                         onClick = { controller.closeMessenger(); section = AppSection.SPACES },
                         icon = { Text("▦") }, label = { Text("Места") })
@@ -534,7 +534,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             when (section) {
                 AppSection.SPACES -> SpacesContent(state, controller, onState, ::openSpace)
                 AppSection.PEOPLE -> PeopleContent(people, peopleLoading, peopleError, search, { search = it }, ::loadPeople) { selected ->
@@ -755,7 +755,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             }
             TextButton(onClick = onCancelReply, enabled = !sending) { Text("Отмена") }
         }
-        Row(Modifier.fillMaxWidth().navigationBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected" && reply == null && !sending, modifier = Modifier.size(40.dp).semantics { contentDescription = "Прикрепить файл" }) { Text("＋", fontSize = 23.sp) }
             Box(Modifier.weight(1f)) { Composer(draft, onDraft, connection == "connected" && !sending, onSend) }
         }
