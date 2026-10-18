@@ -95,3 +95,7 @@ Call push notifications use a distinct Android notification channel. On opening 
 ## Call signaling recovery
 
 Call signaling retries a new one-time ticket using bounded exponential backoff (up to five retries); old sockets are identity-guarded. An interrupted active call ends safely and releases audio/foreground service: resuming an existing WebRTC peer session after lost signaling is not supported. Transient ICE disconnections show a reconnecting state for at most 12 seconds; persistent loss terminates the call. This protects against orphaned calls but is not ICE restart/re-negotiation; real-device Wi-Fi/LTE handover remains to be tested.
+
+## ICE restart (experimental)
+
+During a transient ICE disconnect the native client attempts renegotiation on the same call ID with an ICE-restart SDP offer. The server relays the `ice_restart` flag without waking FCM, and the web peer can answer it. The existing 12-second timeout remains a safety fallback. Network handover across Wi-Fi/LTE and simultaneous restart glare must still be verified on physical devices. TURN credentials may expire on long calls; refreshing ICE server configuration remains a follow-up.
