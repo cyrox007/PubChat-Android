@@ -255,8 +255,15 @@ class PubChatApi(
         request("DELETE", "/messages/v2/messenger/$messageUid")
     }
 
-    fun replyPrivateMessage(messageUid: String, content: String) {
-        request("POST", "/messages/v2/messenger/$messageUid/reply", JSONObject().put("content", content.trim()))
+    fun replyPrivateMessage(messageUid: String, content: String): ChatMessage {
+        val response = JSONObject(request(
+            "POST", "/messages/v2/messenger/$messageUid/reply",
+            JSONObject().put("content", content.trim()),
+        ).body)
+        val created = response.optJSONObject("message")
+            ?: error("Сервер не вернул созданное сообщение")
+        return parseChatMessage(created)
+            ?: error("Не удалось прочитать созданное сообщение")
     }
 
     fun reactPrivateMessage(messageUid: String, emoji: String) {

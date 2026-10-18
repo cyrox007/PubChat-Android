@@ -263,8 +263,16 @@ class AppController(context: Context) {
         api.deletePrivateMessage(messageUid)
     }
 
-    fun replyPrivateMessage(messageUid: String, content: String, onDone: (String?) -> Unit) = messengerAction(onDone) {
-        api.replyPrivateMessage(messageUid, content)
+    fun replyPrivateMessage(messageUid: String, content: String, onDone: (PubChatApi.ChatMessage?, String?) -> Unit) {
+        if (content.isBlank()) {
+            onDone(null, "Введите текст ответа")
+            return
+        }
+        executor.execute {
+            runCatching { authenticated { api.replyPrivateMessage(messageUid, content) } }
+                .onSuccess { created -> main.post { onDone(created, null) } }
+                .onFailure { error -> main.post { onDone(null, humanMessage(error)) } }
+        }
     }
 
     fun reactPrivateMessage(messageUid: String, emoji: String, onDone: (String?) -> Unit) = messengerAction(onDone) {

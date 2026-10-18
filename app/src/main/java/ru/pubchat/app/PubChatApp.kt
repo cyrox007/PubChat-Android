@@ -595,7 +595,25 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         val uid = selectedMessageUid ?: return@MessengerChatContent
                         val done: (String?) -> Unit = { error -> messengerError = error; if (error == null) { actionMode = null; actionDraft = ""; selectedMessageUid = null } }
                         when (action) {
-                            "reply" -> controller.replyPrivateMessage(uid, actionDraft, done)
+                            "reply" -> {
+                                val peerUid = activeDialog?.partnerUid
+                                val sentText = actionDraft
+                                messengerError = null
+                                controller.replyPrivateMessage(uid, sentText) { created, error ->
+                                    messengerError = error
+                                    if (created != null && peerUid != null) {
+                                        conversations = conversations + (peerUid to mergeMessage(conversations[peerUid].orEmpty(), created))
+                                        dialogs = dialogs.map { dialog ->
+                                            if (dialog.partnerUid == peerUid) dialog.copy(lastMessage = created.content) else dialog
+                                        }
+                                        if (selectedMessageUid == uid && actionDraft == sentText) {
+                                            actionMode = null
+                                            actionDraft = ""
+                                            selectedMessageUid = null
+                                        }
+                                    }
+                                }
+                            }
                             "edit" -> controller.editPrivateMessage(uid, actionDraft, done)
                             "delete" -> controller.deletePrivateMessage(uid, done)
                             "react" -> controller.reactPrivateMessage(uid, "👍", done)
