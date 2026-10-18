@@ -108,20 +108,28 @@ fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onD
 
 @Composable
 private fun LoadingScreen() {
+    val colors = MaterialTheme.colorScheme
     Box(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("◉", fontSize = 58.sp, color = MaterialTheme.colorScheme.primary)
-            Text("PubChat", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "Люди. Сообщества. Возможности.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Modifier.fillMaxSize().background(
+            androidx.compose.ui.graphics.Brush.verticalGradient(
+                listOf(colors.background, colors.primaryContainer, colors.background)
             )
-            CircularProgressIndicator(Modifier.padding(top = 18.dp))
-            Text("Загрузка…", style = MaterialTheme.typography.bodySmall)
+        ), contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Box(
+                Modifier.size(88.dp).clip(RoundedCornerShape(26.dp)).background(
+                    androidx.compose.ui.graphics.Brush.linearGradient(
+                        listOf(colors.primary, androidx.compose.ui.graphics.Color(0xFF06C7EC))
+                    )
+                ), contentAlignment = Alignment.Center,
+            ) {
+                Text("P", fontSize = 50.sp, fontWeight = FontWeight.ExtraBold, color = androidx.compose.ui.graphics.Color.White)
+            }
+            Text("PubChat", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold)
+            Text("Люди. Сообщества. Больше возможностей.", color = colors.onSurfaceVariant)
+            CircularProgressIndicator(modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
+            Text("Восстанавливаем сеанс…", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }
     }
 }
@@ -149,8 +157,22 @@ private fun AuthScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             item {
-                Text("PubChat", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                Text("Живые пространства и разговоры", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Box(
+                        Modifier.size(68.dp).clip(RoundedCornerShape(19.dp))
+                            .background(androidx.compose.ui.graphics.Brush.linearGradient(
+                                listOf(MaterialTheme.colorScheme.primary, androidx.compose.ui.graphics.Color(0xFF06C7EC))
+                            )), contentAlignment = Alignment.Center,
+                    ) {
+                        Text("P", fontWeight = FontWeight.ExtraBold, fontSize = 40.sp,
+                            color = androidx.compose.ui.graphics.Color.White)
+                    }
+                    Column {
+                        Text("PubChat", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                        Text("Больше, чем чат.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Text("Люди. Сообщества. Возможности.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(24.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (registration) OutlinedButton(onClick = { registration = false }) { Text("Вход") } else Button(onClick = {}) { Text("Вход") }
@@ -645,7 +667,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             AppSection.PEOPLE -> "Люди"
                             AppSection.FRIENDSHIPS -> "Друзья и заявки"
                             AppSection.MESSENGER -> "Сообщения"
-                            AppSection.NOTIFICATIONS -> "Активность"
+                            AppSection.NOTIFICATIONS -> "Уведомления"
                             AppSection.PROFILE -> "Профиль"
                             AppSection.PERSON -> person?.displayName ?: "Образ"
                             AppSection.SPACE -> activeSpace?.name ?: "Пространство"
@@ -964,10 +986,8 @@ private fun PeopleContent(
         if (loading) PubChatListSkeleton()
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
             if (people.isEmpty()) item {
-                PubChatEmptyState(
-                    title = "Никого не найдено",
-                    explanation = "Попробуйте изменить фильтры или имя в поиске.",
-                )
+                PubChatEmptyState(title = "Никого не найдено",
+                    explanation = "Попробуйте изменить фильтры или имя в поиске.")
             }
             items(people, key = PubChatApi.PersonSummary::accountUid) { person ->
                 Card(Modifier.fillMaxWidth().clickable { onOpen(person) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
