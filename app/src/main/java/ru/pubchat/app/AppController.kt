@@ -394,6 +394,7 @@ class AppController(context: Context) {
                     "call_answer" -> if (uid == callEngine?.callUid) callEngine?.acceptAnswer(frame.optJSONObject("sdp") ?: JSONObject())
                     "call_ice" -> if (uid == callEngine?.callUid) frame.optJSONObject("candidate")?.let { callEngine?.addIce(it) }
                     "call_decline", "call_end" -> if (uid == callEngine?.callUid || uid == offerPending?.optString("call_uid")) {
+                        ++callGeneration
                         offerPending = null
                         callEngine?.end(false)
                         callAudio.release()
@@ -418,9 +419,9 @@ class AppController(context: Context) {
                         callEngine?.begin(peer, video, ice)
                         callStatusCallback?.invoke("outgoing", peer, if (video) "video" else "audio")
                         callEngine?.offer()
-                    }.onFailure { CallForegroundService.stop(appContext); callAudio.release(); callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") }
+                    }.onFailure { callEngine?.end(false); CallForegroundService.stop(appContext); callAudio.release(); callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") }
                 } }
-                .onFailure { main.post { callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") } }
+                .onFailure { main.post { if (generation == callGeneration) callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") } }
         }
     }
 
@@ -445,6 +446,7 @@ class AppController(context: Context) {
                     }.onFailure { callEngine?.end(false); CallForegroundService.stop(appContext); callAudio.release(); callSocket?.send(peer, frame.optString("call_uid"), "call_decline", JSONObject().put("reason", "media_unavailable")); callStatusCallback?.invoke("error", peer, mode) }
                 } }
                 .onFailure { main.post {
+                    if (generation != callGeneration) return@post
                     callSocket?.send(peer, frame.optString("call_uid"), "call_decline", JSONObject().put("reason", "media_unavailable"))
                     callStatusCallback?.invoke("error", peer, mode)
                 } }
