@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -430,7 +432,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     Scaffold(
         topBar = {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
@@ -471,7 +473,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         },
         bottomBar = {
             if (section !in listOf(AppSection.SPACE, AppSection.PERSON, AppSection.MESSENGER_CHAT)) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                NavigationBar(modifier = Modifier.navigationBarsPadding(), containerColor = MaterialTheme.colorScheme.surface) {
                     NavigationBarItem(selected = section == AppSection.SPACES,
                         onClick = { controller.closeMessenger(); section = AppSection.SPACES },
                         icon = { Text("▦") }, label = { Text("Места") })
@@ -675,7 +677,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             if (uri != null) onAttach(uri)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected") { Text("Прикрепить") }
+            TextButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected") { Text("＋", style = MaterialTheme.typography.titleLarge) }
             Box(Modifier.weight(1f)) { Composer(draft, onDraft, connection == "connected", onSend) }
         }
     }
