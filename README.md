@@ -75,3 +75,9 @@ FCM is inactive without Firebase configuration. UI notification center still wor
 ## Android foreground calls (in progress)
 
 Uses a separate ticket-authenticated `/ws/v2/calls` socket with `call_offer`, `call_answer`, `call_ice`, `call_decline`, `call_end`; ICE/TURN settings are read from `/calls/v1/ice-config` with strict relay mode honored. Call media uses native WebRTC DTLS-SRTP, not application-verified E2EE. The present UI covers call setup/incoming consent, mute and hangup while the process is foregrounded. Video track rendering, Android audio routing, background incoming-call wakeup and foreground service/notification integration still require follow-up before production call parity. Never describe this slice as finished calling parity until tested end-to-end between Android and web devices.
+
+## Call audio routing increment
+
+Foreground WebRTC calls acquire transient communication audio focus, switch to MODE_IN_COMMUNICATION and offer speaker/earpiece routing (Android 12+ communication device APIs, legacy speakerphone routing for older devices). Microphone and camera toggles remain available. Call teardown restores audio mode and focus. Bluetooth selection and headset device-change monitoring require real-device verification; do not claim background ringing or Telecom call integration from this change.
+
+**Background calling remains blocked on a server-side call-specific push event with a scoped, short-lived wakeup/offer lookup mechanism.** The existing FCM notification payload is a generic unread-message reminder; it must not be interpreted as an incoming call or carry private SDP/ICE details.
