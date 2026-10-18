@@ -25,6 +25,8 @@ class NativeCallEngine(
     private var videoTrack: VideoTrack? = null
     private var capturer: CameraVideoCapturer? = null
     private var surfaceHelper: SurfaceTextureHelper? = null
+    private var remoteRenderer: SurfaceViewRenderer? = null
+    val videoContext: EglBase.Context get() = egl.eglBaseContext
     var remoteVideo: VideoTrack? = null
         private set
     var localVideo: VideoTrack? = null
@@ -89,7 +91,7 @@ class NativeCallEngine(
             override fun onDataChannel(channel: DataChannel?) {}
             override fun onRenegotiationNeeded() {}
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
-                (receiver?.track() as? VideoTrack)?.let { remoteVideo = it; status("video_track") }
+                (receiver?.track() as? VideoTrack)?.let { remoteVideo = it; remoteRenderer?.let(it::addSink); status("video_track") }
             }
         })
         audioSource = factory.createAudioSource(MediaConstraints())
@@ -135,6 +137,21 @@ class NativeCallEngine(
         if (remoteDescriptionReady) connection?.addIceCandidate(ice) else pendingIce.add(ice)
     }
 
+    fun attachRemote(renderer: SurfaceViewRenderer) {
+        remoteRenderer = renderer
+        remoteVideo?.addSink(renderer)
+    }
+
+    fun detachRemote(renderer: SurfaceViewRenderer) {
+        remoteVideo?.removeSink(renderer)
+        if (remoteRenderer === renderer) remoteRenderer = null
+    }
+
+    fun release() {
+        end(false)
+        egl.release()
+    }
+
     fun mute(muted: Boolean) { audioTrack?.setEnabled(!muted) }
     fun camera(enabled: Boolean) { videoTrack?.setEnabled(enabled) }
 
@@ -148,6 +165,8 @@ class NativeCallEngine(
         runCatching { capturer?.stopCapture() }
         capturer?.dispose(); capturer = null
         surfaceHelper?.dispose(); surfaceHelper = null
+        remoteRenderer?.let { renderer -> remoteVideo?.removeSink(renderer) }
+        remoteRenderer = null
         connection?.close(); connection?.dispose(); connection = null
         videoTrack?.dispose(); videoTrack = null; localVideo = null
         videoSource?.dispose(); videoSource = null; remoteVideo = null
