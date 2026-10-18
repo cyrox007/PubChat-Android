@@ -5,6 +5,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 
 // Keep these colors aligned with frontend/src/assets/main.css in cyrox007/PubChat.
@@ -46,14 +53,26 @@ private val dark = darkColorScheme(
     onError = Color(0xFF251314),
 )
 
+data class ThemeControl(val dark: Boolean, val toggle: () -> Unit)
+val LocalThemeControl = staticCompositionLocalOf { ThemeControl(true) {} }
+
 @Composable
 fun PubChatTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean? = null,
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) dark else light,
+    val context = LocalContext.current
+    val preferences = remember { context.getSharedPreferences("pubchat_appearance", android.content.Context.MODE_PRIVATE) }
+    var preferDark by remember { mutableStateOf(preferences.getBoolean("dark_theme", true)) }
+    val useDark = darkTheme ?: preferDark
+    CompositionLocalProvider(LocalThemeControl provides ThemeControl(useDark) {
+        preferDark = !useDark
+        preferences.edit().putBoolean("dark_theme", preferDark).apply()
+    }) {
+      MaterialTheme(
+        colorScheme = if (useDark) dark else light,
         typography = Typography,
         content = content,
     )
+    }
 }

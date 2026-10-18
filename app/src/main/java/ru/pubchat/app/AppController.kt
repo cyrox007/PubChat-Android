@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.network.parseChatMessage
 import ru.pubchat.app.core.push.FcmRegistration
 import ru.pubchat.app.core.realtime.MessengerRealtimeClient
 import ru.pubchat.app.core.realtime.SpaceRealtimeClient
@@ -283,6 +284,38 @@ class AppController(context: Context) {
     fun sendSpaceMessage(content: String, accountUid: String, displayName: String): Boolean {
         if (content.isBlank()) return false
         return realtime?.sendMessage(content, accountUid, displayName) == true
+    }
+
+    fun loadSpacePanel(spaceUid: String, section: String, onResult: (List<JSONObject>, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.spacePanelItems(spaceUid, section) } }
+                .onSuccess { items -> main.post { onResult(items, null) } }
+                .onFailure { error -> main.post { onResult(emptyList(), humanMessage(error)) } }
+        }
+    }
+
+    fun spaceAction(spaceUid: String, action: String, target: String = "", value: String = "", detail: String = "", onDone: (String?) -> Unit) = messengerAction(onDone) {
+        when (action) {
+            "leave" -> api.leaveSpace(spaceUid)
+            "save" -> api.updateSpace(spaceUid, value, detail)
+            "member" -> api.manageSpaceMember(spaceUid, target, value)
+            "rule" -> api.addSpaceRule(spaceUid, value, detail)
+            "delete-rule" -> api.deleteSpaceRule(spaceUid, target)
+            "event" -> api.addSpaceEvent(spaceUid, value, detail, target)
+            "cancel-event" -> api.cancelSpaceEvent(spaceUid, target)
+            "report" -> api.updateSpaceReport(spaceUid, target, value)
+            "warning", "restrict" -> api.moderateSpaceMember(spaceUid, target, action, detail)
+            "reply" -> api.replySpaceMessage(target, value)
+            else -> error("Неизвестное действие")
+        }
+    }
+
+    fun refreshSpace(spaceUid: String, onResult: (PubChatApi.SpaceSummary?, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.space(spaceUid) } }
+                .onSuccess { space -> main.post { onResult(space, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
     }
 
     fun sendSpaceAttachment(
@@ -650,25 +683,7 @@ class AppController(context: Context) {
         spaces = spaces,
     )
 
-    private fun parseMessage(json: JSONObject): PubChatApi.ChatMessage? {
-        val uid = json.optString("uid").ifBlank { json.optString("frontId") }
-        if (uid.isBlank()) return null
-        val sender = json.optJSONObject("sender")
-        val metadata = json.optJSONObject("media_metadata")
-        return PubChatApi.ChatMessage(
-            uid = uid,
-            content = json.optString("content"),
-            senderUid = sender?.optString("uid")?.takeIf { it.isNotBlank() } ?: json.optString("sender_uid").takeIf { it.isNotBlank() },
-            senderName = sender?.optString("name")?.takeIf { it.isNotBlank() } ?: sender?.optString("display_name")?.takeIf { it.isNotBlank() },
-            createdAt = json.optString("created_at").takeIf { it.isNotBlank() },
-            contentType = json.optString("content_type").ifBlank { "text" },
-            receiverUid = json.optString("receiver_uid").takeIf { it.isNotBlank() },
-            isRead = json.optBoolean("is_read", false),
-            reactions = metadata?.optJSONObject("reactions")?.toString(),
-            replyToUid = metadata?.optJSONObject("reply_to")?.optString("uid")?.takeIf { it.isNotBlank() },
-            attachmentName = metadata?.optJSONArray("files")?.optJSONObject(0)?.optString("name")?.takeIf { it.isNotBlank() },
-        )
-    }
+    private fun parseMessage(json: JSONObject): PubChatApi.ChatMessage? = parseChatMessage(json)
 
     private fun humanMessage(error: Throwable): String = when (error) {
         is PubChatApi.ApiFailure -> when (error.code) {
