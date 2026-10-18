@@ -4,6 +4,7 @@ import android.content.Context
 import ru.pubchat.app.core.calls.CallSignaling
 import ru.pubchat.app.core.calls.NativeCallEngine
 import ru.pubchat.app.core.calls.CallAudioRouter
+import ru.pubchat.app.core.calls.CallForegroundService
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -332,6 +333,7 @@ class AppController(context: Context) {
                             if (status == "disconnected") {
                                 callEngine?.end(false)
                                 callAudio.release()
+                                CallForegroundService.stop(appContext)
                                 callStatusCallback?.invoke("disconnected", null, "audio")
                                 callSocket?.destroy()
                                 callSocket = null
@@ -372,6 +374,7 @@ class AppController(context: Context) {
                         offerPending = null
                         callEngine?.end(false)
                         callAudio.release()
+                        CallForegroundService.stop(appContext)
                         callStatusCallback?.invoke("ended", peer, "audio")
                     }
                 }
@@ -386,10 +389,11 @@ class AppController(context: Context) {
                     runCatching {
                         require(callSocket != null) { "Нет соединения для звонков" }
                         callAudio.start(video)
+                        CallForegroundService.start(appContext, video)
                         callEngine?.begin(peer, video, ice)
                         callStatusCallback?.invoke("outgoing", peer, if (video) "video" else "audio")
                         callEngine?.offer()
-                    }.onFailure { callAudio.release(); callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") }
+                    }.onFailure { CallForegroundService.stop(appContext); callAudio.release(); callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") }
                 } }
                 .onFailure { main.post { callStatusCallback?.invoke("error", peer, if (video) "video" else "audio") } }
         }
@@ -405,6 +409,7 @@ class AppController(context: Context) {
                 .onSuccess { ice -> main.post {
                     runCatching {
                         callAudio.start(mode == "video")
+                        CallForegroundService.start(appContext, mode == "video")
                         callEngine?.begin(peer, mode == "video", ice, frame.optString("call_uid"))
                         callStatusCallback?.invoke("connecting", peer, mode)
                         callEngine?.answer(frame.optJSONObject("sdp") ?: JSONObject())
@@ -425,6 +430,7 @@ class AppController(context: Context) {
         } else callEngine?.end(!decline)
         offerPending = null
         callAudio.release()
+        CallForegroundService.stop(appContext)
         callStatusCallback?.invoke("ended", null, "audio")
     }
 
@@ -441,6 +447,7 @@ class AppController(context: Context) {
     fun disconnectCalls() {
         callEngine?.release()
         callAudio.release()
+        CallForegroundService.stop(appContext)
         callEngine = null
         callSocket?.destroy()
         callSocket = null

@@ -81,3 +81,9 @@ Uses a separate ticket-authenticated `/ws/v2/calls` socket with `call_offer`, `c
 Foreground WebRTC calls acquire transient communication audio focus, switch to MODE_IN_COMMUNICATION and offer speaker/earpiece routing (Android 12+ communication device APIs, legacy speakerphone routing for older devices). Microphone and camera toggles remain available. Call teardown restores audio mode and focus. Bluetooth selection and headset device-change monitoring require real-device verification; do not claim background ringing or Telecom call integration from this change.
 
 **Background calling remains blocked on a server-side call-specific push event with a scoped, short-lived wakeup/offer lookup mechanism.** The existing FCM notification payload is a generic unread-message reminder; it must not be interpreted as an incoming call or carry private SDP/ICE details.
+
+## Active calls in background (foreground-service slice)
+
+An outgoing or accepted call started in the visible Activity now starts an ongoing Android foreground service with microphone/camera service types and a persistent call notification. This helps preserve an ongoing call when the Activity is backgrounded. It does not wake a killed app for incoming calls. Call termination, disconnect and logout stop the service. Android 14+ restrictions mean microphone/camera FGS must start while the app is foregrounded and permissions are already granted. Battery policies and headset routing require physical-device testing.
+
+**Not implemented:** background incoming call push, call offer persistence/claim with expiry, notification answer/decline actions, Telecom integration, cross-device WebRTC smoke. Current WebSocket-only offers cannot be answered after process death; do not treat a generic FCM message as an offer.
