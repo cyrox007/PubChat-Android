@@ -24,10 +24,14 @@ class PubChatFirebaseService : FirebaseMessagingService() {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
+        val incomingCall = message.data["type"] == "call"
+        val channel = if (incomingCall) CALL_CHANNEL else CHANNEL
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(NotificationChannel(
-                CHANNEL, "Сообщения PubChat", NotificationManager.IMPORTANCE_DEFAULT
+                channel,
+                if (incomingCall) "Входящие звонки PubChat" else "Сообщения PubChat",
+                if (incomingCall) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT
             ))
         }
         val pending = PendingIntent.getActivity(
@@ -36,10 +40,12 @@ class PubChatFirebaseService : FirebaseMessagingService() {
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val notification = NotificationCompat.Builder(this, CHANNEL)
+        val notification = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Новое сообщение в PubChat")
-            .setContentText("У вас есть новое сообщение.")
+            .setContentTitle(if (incomingCall) "Входящий звонок PubChat" else "Новое сообщение в PubChat")
+            .setContentText(if (incomingCall) "Откройте приложение, чтобы ответить." else "У вас есть новое сообщение.")
+            .setCategory(if (incomingCall) NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(if (incomingCall) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
@@ -48,5 +54,6 @@ class PubChatFirebaseService : FirebaseMessagingService() {
 
     companion object {
         private const val CHANNEL = "pubchat_messages"
+        private const val CALL_CHANNEL = "pubchat_incoming_calls"
     }
 }
