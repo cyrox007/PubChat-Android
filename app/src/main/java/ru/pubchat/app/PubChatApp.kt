@@ -364,6 +364,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         "incoming" -> "Входящий вызов"
                         "outgoing" -> "Вызываем…"
                         "connecting" -> "Соединяем…"
+                        "reconnecting" -> "Восстанавливаем соединение…"
                         "active" -> "На связи · WebRTC DTLS-SRTP"
                         "error", "disconnected" -> "Не удалось установить соединение"
                         else -> "Подключение…"
