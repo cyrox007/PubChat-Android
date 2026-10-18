@@ -811,9 +811,24 @@ private fun ProfileContent(state: AppState.SignedIn) {
 }
 
 @Composable
-private fun PersonContent(person: PubChatApi.PersonSummary?, onMessage: (PubChatApi.PersonSummary) -> Unit) {
+private fun PersonContent(
+    person: PubChatApi.PersonSummary?,
+    relationship: PubChatApi.SocialRelationship?,
+    loading: Boolean,
+    busy: Boolean,
+    error: String?,
+    onReload: () -> Unit,
+    onFollow: () -> Unit,
+    onFriendAction: (String) -> Unit,
+    onBlock: () -> Unit,
+    onMessage: (PubChatApi.PersonSummary) -> Unit,
+) {
     if (person == null) return
-    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    var confirmBlock by remember(person.accountUid) { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         ru.pubchat.app.ui.components.UserAvatar(person.displayName, person.avatar, 80.dp)
         Text(person.displayName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         person.handle?.let { Text("@$it", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -822,8 +837,62 @@ private fun PersonContent(person: PubChatApi.PersonSummary?, onMessage: (PubChat
         if (location.isNotBlank()) Text(location)
         person.socialIntent?.let { Text(intentLabel(it), color = MaterialTheme.colorScheme.primary) }
         Spacer(Modifier.height(8.dp))
-        Button(onClick = { onMessage(person) }, Modifier.fillMaxWidth()) { Text("Написать сообщение") }
+        Text("Социальные связи", style = MaterialTheme.typography.titleMedium)
+        if (loading) CircularProgressIndicator()
+        if (error != null) {
+            Text(error, color = MaterialTheme.colorScheme.error)
+            OutlinedButton(onClick = onReload, enabled = !busy) { Text("Повторить") }
+        }
+        if (relationship != null && !loading) {
+            if (relationship.blockedByMe) {
+                Text("Вы заблокировали этот аккаунт. Общение ограничено.")
+                OutlinedButton(onClick = onBlock, enabled = !busy) { Text("Разблокировать") }
+            } else if (relationship.blockedMe) {
+                Text("Социальные действия недоступны из-за настроек доступа.")
+            } else {
+                if (relationship.friends) Text("✓ Вы друзья", color = MaterialTheme.colorScheme.primary)
+                if (relationship.followedBy) Text("Подписан(а) на вас")
+                if (relationship.friendRequest == "incoming") Text("Вам предложили дружбу")
+                if (relationship.friendRequest == "outgoing") Text("Запрос на дружбу отправлен")
+                OutlinedButton(onClick = onFollow, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (relationship.following) "Отписаться" else "Подписаться")
+                }
+                OutlinedButton(
+                    onClick = { onFriendAction(relationship.friendAction) },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(relationship.friendActionTitle) }
+                if (relationship.friendRequest == "incoming") {
+                    OutlinedButton(
+                        onClick = { onFriendAction("reject") },
+                        enabled = !busy,
+                    ) { Text("Отклонить запрос") }
+                }
+                TextButton(onClick = { confirmBlock = true }, enabled = !busy) {
+                    Text("Заблокировать", color = MaterialTheme.colorScheme.error)
+                }
+                Button(
+                    onClick = { onMessage(person) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                ) { Text("Написать сообщение") }
+            }
+        }
+        if (busy) CircularProgressIndicator()
     }
+    if (confirmBlock) AlertDialog(
+        onDismissRequest = { confirmBlock = false },
+        title = { Text("Заблокировать аккаунт?") },
+        text = { Text("Общение, подписки и заявки в друзья станут недоступны.") },
+        confirmButton = {
+            TextButton(onClick = { confirmBlock = false; onBlock() }) {
+                Text("Заблокировать", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { confirmBlock = false }) { Text("Отмена") }
+        },
+    )
 }
 
 @Composable
