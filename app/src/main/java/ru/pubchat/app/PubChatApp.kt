@@ -77,10 +77,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.ui.components.FriendshipHubContent
 import ru.pubchat.app.ui.components.RoomMessageCard
 import ru.pubchat.app.ui.components.RoomControlPanel
 
-enum class AppSection { SPACES, PEOPLE, MESSENGER, PROFILE, PERSON, SPACE, MESSENGER_CHAT, NOTIFICATIONS }
+enum class AppSection { SPACES, PEOPLE, FRIENDSHIPS, MESSENGER, PROFILE, PERSON, SPACE, MESSENGER_CHAT, NOTIFICATIONS }
 
 @Composable
 fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onDeepLinkConsumed: () -> Unit = {}, incomingAction: IncomingCallAction? = null, onCallActionConsumed: () -> Unit = {}) {
@@ -188,6 +189,15 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var peopleLoading by remember { mutableStateOf(false) }
     var peopleError by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
+    var friendshipTab by remember { mutableStateOf("incoming") }
+    var friendshipRows by remember { mutableStateOf<List<PubChatApi.FriendshipEntry>>(emptyList()) }
+    var friendshipTotal by remember { mutableStateOf(0) }
+    var friendshipLoading by remember { mutableStateOf(false) }
+    var friendshipLoadingMore by remember { mutableStateOf(false) }
+    var friendshipBusyUid by remember { mutableStateOf<String?>(null) }
+    var friendshipError by remember { mutableStateOf<String?>(null) }
+    var friendshipGeneration by remember { mutableStateOf(0) }
+    var personReturnSection by remember { mutableStateOf(AppSection.PEOPLE) }
     var person by remember { mutableStateOf<PubChatApi.PersonSummary?>(null) }
     var personRelationship by remember { mutableStateOf<PubChatApi.SocialRelationship?>(null) }
     var personRelationLoading by remember { mutableStateOf(false) }
@@ -521,6 +531,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         when (section) {
                             AppSection.SPACES -> "Пространства"
                             AppSection.PEOPLE -> "Люди"
+                            AppSection.FRIENDSHIPS -> "Друзья и заявки"
                             AppSection.MESSENGER -> "Сообщения"
                             AppSection.NOTIFICATIONS -> "Уведомления"
                             AppSection.PROFILE -> "Профиль"
@@ -540,11 +551,12 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                 if (section == AppSection.SPACE) {
                     TextButton(onClick = { showRoomPanel = true }, enabled = activeSpace != null, contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.height(38.dp)) { Text("О комнате", fontSize = 12.sp) }
                 }
-                if (section == AppSection.PERSON || section == AppSection.MESSENGER_CHAT) {
+                if (section == AppSection.PERSON || section == AppSection.MESSENGER_CHAT || section == AppSection.FRIENDSHIPS) {
                     TextButton(onClick = {
                         when (section) {
                             AppSection.SPACE -> { controller.closeSpace(); section = AppSection.SPACES }
-                            AppSection.PERSON -> section = AppSection.PEOPLE
+                            AppSection.PERSON -> section = personReturnSection
+                            AppSection.FRIENDSHIPS -> section = AppSection.PEOPLE
                             AppSection.MESSENGER_CHAT -> { activeDialog = null; section = AppSection.MESSENGER }
                             else -> Unit
                         }
@@ -560,7 +572,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     NavigationBarItem(selected = section == AppSection.SPACES,
                         onClick = { controller.closeMessenger(); section = AppSection.SPACES },
                         icon = { Icon(painterResource(R.drawable.ic_spaces), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Пространства", fontSize = 10.sp, maxLines = 1, softWrap = false) })
-                    NavigationBarItem(selected = section == AppSection.PEOPLE,
+                    NavigationBarItem(selected = section == AppSection.PEOPLE || section == AppSection.FRIENDSHIPS,
                         onClick = { controller.closeMessenger(); section = AppSection.PEOPLE; loadPeople() },
                         icon = { Icon(painterResource(R.drawable.ic_people), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Люди", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.MESSENGER,
@@ -579,7 +591,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             when (section) {
                 AppSection.SPACES -> SpacesContent(state, controller, onState, ::openSpace)
-                AppSection.PEOPLE -> PeopleContent(people, peopleLoading, peopleError, search, { search = it }, ::loadPeople) { selected ->
+                AppSection.PEOPLE -> PeopleContent(people, peopleLoading, peopleError, search, { search = it }, ::loadPeople, { section = AppSection.FRIENDSHIPS; loadFriendships() }) { selected ->
+                    personReturnSection = AppSection.PEOPLE
                     personRelationship = null
                     personRelationError = null
                     controller.loadProfile(selected.accountUid) { loaded, error ->
