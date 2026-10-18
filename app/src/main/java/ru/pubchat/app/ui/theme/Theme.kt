@@ -1,11 +1,11 @@
 package ru.pubchat.app.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,6 +20,8 @@ private val light = lightColorScheme(
     primary = Color(0xFF8C2F67),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFF7E8F0),
+    secondaryContainer = Color(0xFFF7E8F0),
+    onSecondaryContainer = Color(0xFF5F1F45),
     onPrimaryContainer = Color(0xFF5F1F45),
     secondary = Color(0xFF6F6863),
     onSecondary = Color.White,
@@ -38,6 +40,8 @@ private val dark = darkColorScheme(
     primary = Color(0xFFE07BAD),
     onPrimary = Color(0xFF24151E),
     primaryContainer = Color(0xFF402536),
+    secondaryContainer = Color(0xFF402536),
+    onSecondaryContainer = Color(0xFFF5DAE8),
     onPrimaryContainer = Color(0xFFF5DAE8),
     secondary = Color(0xFFB9B1AB),
     onSecondary = Color(0xFF161718),
@@ -65,6 +69,14 @@ fun PubChatTheme(
     val preferences = remember { context.getSharedPreferences("pubchat_appearance", android.content.Context.MODE_PRIVATE) }
     var preferDark by remember { mutableStateOf(preferences.getBoolean("dark_theme", true)) }
     val useDark = darkTheme ?: preferDark
+    SideEffect {
+        (context as? android.app.Activity)?.let { activity ->
+            androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
+                isAppearanceLightStatusBars = !useDark
+                isAppearanceLightNavigationBars = !useDark
+            }
+        }
+    }
     CompositionLocalProvider(LocalThemeControl provides ThemeControl(useDark) {
         preferDark = !useDark
         preferences.edit().putBoolean("dark_theme", preferDark).apply()

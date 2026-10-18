@@ -94,10 +94,14 @@ internal fun RoomControlPanel(
                     (if (manager) listOf("requests" to "Заявки") else emptyList()) +
                     listOf("rules" to "Правила", "events" to "События") +
                     (if (manager) listOf("reports" to "Модерация") else emptyList())
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp)) {
-                    tabs.forEach { (key, title) ->
-                        if (key == tab) FilledTonalButton(onClick = { tab = key }, modifier = Modifier.padding(3.dp)) { Text(title) }
-                        else TextButton(onClick = { tab = key }) { Text(title) }
+                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                    tabs.chunked(3).forEach { group ->
+                        Row(Modifier.fillMaxWidth()) {
+                            group.forEach { (key, title) ->
+                                if (key == tab) FilledTonalButton(onClick = { tab = key }, modifier = Modifier.weight(1f).padding(3.dp)) { Text(title) }
+                                else TextButton(onClick = { tab = key }, modifier = Modifier.weight(1f)) { Text(title) }
+                            }
+                        }
                     }
                 }
                 error?.let { Text(it, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error) }

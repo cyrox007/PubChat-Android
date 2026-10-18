@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import ru.pubchat.app.BuildConfig
 import ru.pubchat.app.core.network.PubChatApi
 import java.net.URI
@@ -56,9 +57,9 @@ internal fun RoomMessageCard(
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     val avatar = publicMediaUrl(message.senderAvatar)
-                    if (avatar != null) AsyncImage(avatar, "Аватар автора", Modifier.size(28.dp).clip(CircleShape), contentScale = ContentScale.Crop)
-                    else Box(Modifier.size(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
                         Text(message.senderName?.take(1)?.uppercase() ?: "?", color = MaterialTheme.colorScheme.primary)
+                        if (avatar != null) AsyncImage(avatar, "Аватар автора", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
                     Text(message.senderName ?: if (own) "Вы" else "Участник", color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
@@ -96,8 +97,10 @@ private fun MessageAttachment(attachment: PubChatApi.Attachment, contentType: St
     if (url == null) { Text("Вложение недоступно"); return }
     val image = attachment.mimeType?.startsWith("image/") == true || contentType == "image"
     val audio = attachment.mimeType?.startsWith("audio/") == true || contentType in setOf("audio", "voice")
-    if (image) AsyncImage(url, attachment.name, Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 220.dp).clip(RoundedCornerShape(10.dp))
-        .clickable { runCatching { uriHandler.openUri(url) }.onFailure { openError = true } }, contentScale = ContentScale.Fit)
+    if (image) SubcomposeAsyncImage(url, attachment.name, Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 220.dp).clip(RoundedCornerShape(10.dp))
+        .clickable { runCatching { uriHandler.openUri(url) }.onFailure { openError = true } }, contentScale = ContentScale.Fit,
+        loading = { Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } },
+        error = { Box(Modifier.fillMaxWidth().height(100.dp).background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) { Text("Изображение недоступно · Открыть", style = MaterialTheme.typography.bodySmall) } })
     else if (audio) AudioMessage(url)
     else TextButton(onClick = { runCatching { uriHandler.openUri(url) }.onFailure { openError = true } }) {
         Text(if (contentType == "video") "▶ ${attachment.name}" else "📎 ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
