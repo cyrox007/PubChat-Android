@@ -290,6 +290,41 @@ class AppController(context: Context) {
         }
     }
 
+    fun loadPersonas(onResult: (PubChatApi.PersonaList?, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.personas() } }
+                .onSuccess { list -> main.post { onResult(list, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
+    fun createPersona(
+        handle: String, displayName: String, onDone: (String?) -> Unit
+    ) {
+        executor.execute {
+            runCatching { authenticated { api.createPersona(handle, displayName) } }
+                .onSuccess { main.post { onDone(null) } }
+                .onFailure { error -> main.post { onDone(humanMessage(error)) } }
+        }
+    }
+
+    fun activatePersona(
+        current: AppState.SignedIn, personaUid: String,
+        onDone: (AppState.SignedIn?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching { authenticated { api.activatePersona(personaUid) } }
+                .onSuccess { identity ->
+                    main.post {
+                        if (identity.accountUid == current.accountUid) {
+                            onDone(identity.toSignedIn(current.spaces), null)
+                        } else onDone(null, "Сервер вернул другой Account")
+                    }
+                }
+                .onFailure { error -> main.post { onDone(null, humanMessage(error)) } }
+        }
+    }
+
     fun loadNotifications(onResult: (List<PubChatApi.Notice>, String?) -> Unit) {
         executor.execute {
             runCatching { authenticated { api.notifications() } }

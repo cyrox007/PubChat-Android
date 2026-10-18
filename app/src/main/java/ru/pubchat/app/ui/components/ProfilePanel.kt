@@ -25,6 +25,7 @@ import ru.pubchat.app.ui.theme.LocalThemeControl
 internal fun ProfilePanel(state: AppState.SignedIn, controller: AppController, onState: (AppState) -> Unit) {
     val theme = LocalThemeControl.current
     var editing by remember { mutableStateOf(false) }
+    var managingPersonas by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -40,6 +41,9 @@ internal fun ProfilePanel(state: AppState.SignedIn, controller: AppController, o
                     }
                 }
                 Button(onClick = { editing = true }, modifier = Modifier.fillMaxWidth()) { Text("Редактировать профиль") }
+                OutlinedButton(onClick = { managingPersonas = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Мои Persona")
+                }
             }
         }
         Text("О себе", style = MaterialTheme.typography.titleSmall)
@@ -63,6 +67,116 @@ internal fun ProfilePanel(state: AppState.SignedIn, controller: AppController, o
         }
     }
     if (editing) ProfileEditor(state, controller, onSaved = { onState(it); editing = false }, onDismiss = { editing = false })
+    if (managingPersonas) PersonaManagerDialog(
+        state = state, controller = controller,
+        onSaved = onState, onDismiss = { managingPersonas = false },
+    )
+}
+
+@Composable
+private fun PersonaManagerDialog(
+    state: AppState.SignedIn,
+    controller: AppController,
+    onSaved: (AppState.SignedIn) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var personas by remember { mutableStateOf<List<ru.pubchat.app.core.network.PubChatApi.PersonaSummary>>(emptyList()) }
+    var selected by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var handle by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf("") }
+
+    fun reload() {
+        loading = true
+        error = null
+        controller.loadPersonas { result, failure ->
+            if (result != null) {
+                personas = result.personas
+                selected = result.activePersonaUid
+            } else error = failure ?: "Не удалось загрузить образы"
+            loading = false
+        }
+    }
+
+    LaunchedEffect(Unit) { reload() }
+    Dialog(onDismissRequest = { if (!busy) onDismiss() }) {
+        Surface(shape = RoundedCornerShape(16.dp)) {
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Мои Persona", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "Образы переключаются отдельно на каждом устройстве. " +
+                        "Блокировки, переписки и репутация остаются общими для Account.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (loading || busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                personas.forEach { persona ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(persona.displayName, fontWeight = FontWeight.SemiBold)
+                            Text("@${persona.handle}", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                if (persona.isPrimary) "Основной образ" else "Дополнительный — приватный",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                        if (persona.uid == selected) Text("Активен")
+                        else OutlinedButton(
+                            onClick = {
+                                busy = true
+                                error = null
+                                controller.activatePersona(state, persona.uid) { updated, failure ->
+                                    busy = false
+                                    if (updated != null) {
+                                        selected = persona.uid
+                                        onSaved(updated)
+                                    } else error = failure ?: "Не удалось переключить образ"
+                                }
+                            },
+                            enabled = !loading && !busy,
+                        ) { Text("Выбрать") }
+                    }
+                    HorizontalDivider()
+                }
+                if (!loading && personas.size < 3) {
+                    Text("Создать приватный образ", style = MaterialTheme.typography.titleSmall)
+                    OutlinedTextField(
+                        handle, { if (it.length <= 32) handle = it },
+                        label = { Text("Handle") }, singleLine = true,
+                        enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        displayName, { if (it.length <= 80) displayName = it },
+                        label = { Text("Отображаемое имя") }, singleLine = true,
+                        enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = {
+                            busy = true
+                            error = null
+                            controller.createPersona(handle.trim(), displayName.trim()) { failure ->
+                                busy = false
+                                if (failure != null) error = failure
+                                else { handle = ""; displayName = ""; reload() }
+                            }
+                        },
+                        enabled = !busy && handle.length in 3..32 &&
+                            handle.matches(Regex("^[A-Za-z0-9_.]+$")) && displayName.isNotBlank(),
+                    ) { Text("Создать") }
+                }
+                TextButton(onClick = onDismiss, enabled = !busy) { Text("Закрыть") }
+            }
+        }
+    }
 }
 
 private fun intentTitle(value: String?) = when(value) {
