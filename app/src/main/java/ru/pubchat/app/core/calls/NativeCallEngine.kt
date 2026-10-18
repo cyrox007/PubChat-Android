@@ -71,7 +71,8 @@ class NativeCallEngine(
         connection = factory.createPeerConnection(config, object : PeerConnection.Observer {
             override fun onSignalingChange(value: PeerConnection.SignalingState?) {}
             override fun onIceConnectionChange(value: PeerConnection.IceConnectionState?) {
-                if (value == PeerConnection.IceConnectionState.CONNECTED) status("active")
+                if (value == PeerConnection.IceConnectionState.CONNECTED || value == PeerConnection.IceConnectionState.COMPLETED) status("active")
+                if (value == PeerConnection.IceConnectionState.DISCONNECTED) status("reconnecting")
                 if (value == PeerConnection.IceConnectionState.FAILED) status("error")
             }
             override fun onIceConnectionReceivingChange(value: Boolean) {}
