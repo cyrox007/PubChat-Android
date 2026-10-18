@@ -181,18 +181,6 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         }
     }
 
-    fun openNotice(notice: PubChatApi.Notice) {
-        controller.markNotificationRead(notice.uid) { error ->
-            if (error == null) notices = notices.map { if (it.uid == notice.uid) it.copy(read = true) else it }
-            else noticesError = error
-        }
-        val target = notice.targetUid ?: return
-        when (notice.surface) {
-            "space", "room" -> state.spaces.find { it.uid == target }?.let { openSpace(it) }
-            "messenger", "dm" -> loadDialogsAndConnect(target)
-        }
-    }
-
     fun loadPeople() {
         peopleLoading = true
         controller.loadPeople(search) { result, error ->
@@ -255,6 +243,18 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             activeDialog = target
             connectMessenger(target?.partnerUid)
             if (target != null) section = AppSection.MESSENGER_CHAT
+        }
+    }
+
+    fun openNotice(notice: PubChatApi.Notice) {
+        controller.markNotificationRead(notice.uid) { error ->
+            if (error == null) notices = notices.map { if (it.uid == notice.uid) it.copy(read = true) else it }
+            else noticesError = error
+        }
+        val target = notice.targetUid ?: return
+        when (notice.surface) {
+            "space", "room" -> state.spaces.find { it.uid == target }?.let { openSpace(it) }
+            "messenger", "dm" -> loadDialogsAndConnect(target)
         }
     }
 
