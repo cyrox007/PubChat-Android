@@ -9,6 +9,10 @@ jobs:
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        firebase: [disabled, enabled]
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 17
@@ -21,6 +25,57 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
+      - name: Verify checkout has no Firebase configuration
+        run: test ! -e app/google-services.json
+      - name: Create synthetic Firebase configuration
+        if: matrix.firebase == 'enabled'
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Build-only fixture: no real Firebase project or credentials.
+          config = {
+              "project_info": {
+                  "project_number": "123456789012",
+                  "project_id": "pubchat-ci-placeholder",
+                  "storage_bucket": "pubchat-ci-placeholder.appspot.com",
+              },
+              "client": [
+                  {
+                      "client_info": {
+                          "mobilesdk_app_id": f"1:123456789012:android:{index:016x}",
+                          "android_client_info": {"package_name": package},
+                      },
+                      "api_key": [{"current_key": "CI_PLACEHOLDER_NOT_A_REAL_API_KEY"}],
+                  }
+                  for index, package in enumerate(
+                      ["ru.pubchat.app", "ru.pubchat.app.debug"], start=1
+                  )
+              ],
+              "configuration_version": "1",
+          }
+          Path("app/google-services.json").write_text(json.dumps(config))
+          PY
+      - name: Verify Gradle configuration and optional plugin resolution
+        env:
+          FIREBASE_MODE: ${{ matrix.firebase }}
+        run: |
+          ./gradlew help :app:tasks --all :app:buildEnvironment --stacktrace > firebase-configuration.txt
+          cat firebase-configuration.txt
+          if [ "$FIREBASE_MODE" = enabled ]; then
+            grep -q 'com.google.gms:google-services:4.4.2' firebase-configuration.txt
+            grep -q 'processDebugGoogleServices' firebase-configuration.txt
+          else
+            ! grep -q 'com.google.gms:google-services' firebase-configuration.txt
+            ! grep -q 'processDebugGoogleServices' firebase-configuration.txt
+          fi
+      - name: Verify Firebase resources for debug and release
+        if: matrix.firebase == 'enabled'
+        run: |
+          ./gradlew :app:processDebugGoogleServices :app:processReleaseGoogleServices --stacktrace
+          grep -q '1:123456789012:android:0000000000000002' app/build/generated/res/google-services/debug/values/values.xml
+          grep -q '1:123456789012:android:0000000000000001' app/build/generated/res/google-services/release/values/values.xml
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
       - name: Android lint
