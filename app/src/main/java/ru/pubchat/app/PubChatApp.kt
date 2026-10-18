@@ -7,6 +7,9 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -330,7 +333,27 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     })
                     Text("Медиа шифруется транспортом WebRTC. Проверенного E2EE звонка пока нет.",
                         style = MaterialTheme.typography.bodySmall)
-                    if (callPhase == "active") {
+                    if (callMode == "video" && callPhase in listOf("connecting", "video_track", "active")) {
+                        val eglContext = controller.callVideoContext()
+                        if (eglContext != null) {
+                            val androidContext = LocalContext.current
+                            val renderer = remember(eglContext) {
+                                org.webrtc.SurfaceViewRenderer(androidContext).apply {
+                                    init(eglContext, null)
+                                    setMirror(false)
+                                }
+                            }
+                            DisposableEffect(renderer) {
+                                controller.attachRemoteVideo(renderer)
+                                onDispose {
+                                    controller.detachRemoteVideo(renderer)
+                                    renderer.release()
+                                }
+                            }
+                            AndroidView(factory = { renderer }, modifier = Modifier.fillMaxWidth().height(200.dp))
+                        }
+                    }
+                    if (callPhase == "active" || callPhase == "video_track") {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { callMuted = !callMuted; controller.setCallMuted(callMuted) }) {
                                 Text(if (callMuted) "Включить микрофон" else "Выключить микрофон")
