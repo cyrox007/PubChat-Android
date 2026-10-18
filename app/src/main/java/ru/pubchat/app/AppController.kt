@@ -283,9 +283,9 @@ class AppController(context: Context) {
         }
     }
 
-    fun sendSpaceMessage(content: String, accountUid: String, displayName: String): Boolean {
+    fun sendSpaceMessage(content: String, accountUid: String, displayName: String, replyToUid: String? = null): Boolean {
         if (content.isBlank()) return false
-        return realtime?.sendMessage(content, accountUid, displayName) == true
+        return realtime?.sendMessage(content, accountUid, displayName, replyToUid) == true
     }
 
     fun saveProfile(current: AppState.SignedIn, name: String, bio: String, city: String, country: String, intent: String, onDone: (AppState.SignedIn?, String?) -> Unit) {

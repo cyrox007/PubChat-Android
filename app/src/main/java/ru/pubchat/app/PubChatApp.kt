@@ -564,14 +564,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onAttach = { uri -> controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error } },
                     onSend = send@{
                         if (roomReplySending) return@send
-                        val source = roomReply
-                        if (source != null && activeSpace != null) {
-                            roomReplySending = true
-                            controller.spaceAction(activeSpace!!.uid, "reply", source.uid, draft) { error ->
-                                roomReplySending = false; chatError = error
-                                if (error == null) { draft = ""; roomReply = null }
-                            }
-                        } else if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) draft = ""
+                        if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName, roomReply?.uid)) {
+                            draft = ""; roomReply = null; chatError = null
+                        }
                         else chatError = "Соединение ещё не готово"
                     })
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
