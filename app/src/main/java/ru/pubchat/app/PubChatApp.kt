@@ -106,7 +106,30 @@ fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onD
 
 @Composable
 private fun LoadingScreen() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    val colors = MaterialTheme.colorScheme
+    Box(
+        Modifier.fillMaxSize().background(
+            androidx.compose.ui.graphics.Brush.verticalGradient(
+                listOf(colors.background, colors.primaryContainer, colors.background)
+            )
+        ), contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Box(
+                Modifier.size(88.dp).clip(RoundedCornerShape(26.dp)).background(
+                    androidx.compose.ui.graphics.Brush.linearGradient(
+                        listOf(colors.primary, androidx.compose.ui.graphics.Color(0xFF06C7EC))
+                    )
+                ), contentAlignment = Alignment.Center,
+            ) {
+                Text("P", fontSize = 50.sp, fontWeight = FontWeight.ExtraBold, color = androidx.compose.ui.graphics.Color.White)
+            }
+            Text("PubChat", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold)
+            Text("Люди. Сообщества. Больше возможностей.", color = colors.onSurfaceVariant)
+            CircularProgressIndicator(modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
+            Text("Восстанавливаем сеанс…", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+        }
+    }
 }
 
 @Composable
