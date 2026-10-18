@@ -4,7 +4,7 @@
 
 **Репозитории**
 - Android: [cyrox007/PubChat-Android](https://github.com/cyrox007/PubChat-Android), основная ветка `master`.
-- Backend + веб-клиент: [cyrox007/chat](https://github.com/cyrox007/chat), основная ветка `main`. Это **текущее** имя: `cyrox007/PubChat` пока не существует как адрес основной системы; старый `cyrox007/PubChat` перенаправляется на Android-репозиторий. После переименования сервера ссылки нужно обновить.
+- Backend + веб-клиент: [cyrox007/PubChat](https://github.com/cyrox007/PubChat), основная ветка `main`. Это актуальное имя основной системы после переименования `cyrox007/chat` → `cyrox007/PubChat`.
 
 ## Архитектура и сборка
 
@@ -65,4 +65,4 @@
 - Проверить E2EE-политику личных сообщений и отсутствие утечек plaintext; дополнить тесты по всем пользовательским сценариям.
 - Проверить HTTPS App Links и необходимые доменные настройки, затем отдельный release gate.
 
-Документация основной системы: [обзор мультиклиентной архитектуры](https://github.com/cyrox007/chat/blob/main/docs/client-repositories.md).
+Документация основной системы: [обзор мультиклиентной архитектуры](https://github.com/cyrox007/PubChat/blob/main/docs/client-repositories.md).
