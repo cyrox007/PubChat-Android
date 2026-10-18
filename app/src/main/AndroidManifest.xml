@@ -22,6 +22,22 @@
             android:theme="@style/Theme.PubChat"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pubchat" android:host="spaces" />
+                <data android:scheme="pubchat" android:host="messenger" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="pubchat.ru" android:pathPrefix="/spaces/" />
+                <data android:scheme="https" android:host="pubchat.ru" android:pathPrefix="/messenger/" />
+                <data android:scheme="https" android:host="www.pubchat.ru" android:pathPrefix="/spaces/" />
+                <data android:scheme="https" android:host="www.pubchat.ru" android:pathPrefix="/messenger/" />
+            </intent-filter>
+            <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
