@@ -48,6 +48,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -1244,8 +1245,22 @@ private fun NotificationContent(
     onReload: () -> Unit,
     onOpen: (PubChatApi.Notice) -> Unit,
     onReadAll: () -> Unit,
+    birthdayEnabled: Boolean,
+    birthdayBusy: Boolean,
+    birthdayError: String?,
+    onBirthdayToggle: (Boolean) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.weight(1f)) {
+                Text("Дни рождения друзей", style = MaterialTheme.typography.titleSmall)
+                Text("Внутренние уведомления. Только друзья с разрешённым напоминанием; год рождения скрыт.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = birthdayEnabled, onCheckedChange = onBirthdayToggle, enabled = !birthdayBusy)
+        }
+        birthdayError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Требует внимания", style = MaterialTheme.typography.titleMedium)
             TextButton(onClick = onReadAll, enabled = notices.any { !it.read }) { Text("Прочитать всё") }
