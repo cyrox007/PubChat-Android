@@ -595,7 +595,25 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         val uid = selectedMessageUid ?: return@MessengerChatContent
                         val done: (String?) -> Unit = { error -> messengerError = error; if (error == null) { actionMode = null; actionDraft = ""; selectedMessageUid = null } }
                         when (action) {
-                            "reply" -> controller.replyPrivateMessage(uid, actionDraft, done)
+                            "reply" -> {
+                                val targetPeer = activeDialog?.partnerUid
+                                val sentText = actionDraft
+                                controller.replyPrivateMessage(uid, sentText) { saved, error ->
+                                    if (error != null || saved == null) {
+                                        messengerError = error ?: "Сервер не подтвердил ответ"
+                                    } else {
+                                        if (targetPeer != null) {
+                                            conversations = conversations + (targetPeer to
+                                                mergeMessage(conversations[targetPeer].orEmpty(), saved))
+                                        }
+                                        // Only clear the editor once a persisted reply is confirmed.
+                                        messengerError = null
+                                        actionMode = null
+                                        actionDraft = ""
+                                        selectedMessageUid = null
+                                    }
+                                }
+                            }
                             "edit" -> controller.editPrivateMessage(uid, actionDraft, done)
                             "delete" -> controller.deletePrivateMessage(uid, done)
                             "react" -> controller.reactPrivateMessage(uid, "👍", done)
