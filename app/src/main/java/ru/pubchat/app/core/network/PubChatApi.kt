@@ -20,6 +20,8 @@ class PubChatApi(
         val bio: String?,
         val avatar: String?,
         val socialIntent: String?,
+        val city: String? = null,
+        val country: String? = null,
     )
 
     data class RefreshResult(val accessToken: String, val refreshCookie: String?)
@@ -118,6 +120,12 @@ class PubChatApi(
     fun me(): Identity {
         val response = request("GET", "/identity/v2/me")
         return parseIdentity(JSONObject(response.body), refreshCookie())
+    }
+
+    fun updateProfile(name: String, bio: String, city: String, country: String, intent: String): Identity {
+        request("PATCH", "/identity/v2/persona", JSONObject().put("display_name", name.trim()).put("bio", bio.trim())
+            .put("city", city.trim()).put("country", country.trim()).put("social_intent", intent))
+        return me()
     }
 
     fun spaces(): List<SpaceSummary> = parseSpaces(
@@ -352,6 +360,8 @@ class PubChatApi(
             bio = persona?.optNullableString("bio") ?: user?.optNullableString("bio"),
             avatar = persona?.optNullableString("avatar") ?: user?.optNullableString("avatar"),
             socialIntent = persona?.optNullableString("social_intent") ?: user?.optNullableString("social_intent"),
+            city = persona?.optNullableString("city"),
+            country = persona?.optNullableString("country"),
         )
     }
 

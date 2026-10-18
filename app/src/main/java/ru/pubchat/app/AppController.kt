@@ -32,6 +32,8 @@ sealed interface AppState {
         val spaces: List<PubChatApi.SpaceSummary>,
         val loading: Boolean = false,
         val error: String? = null,
+        val city: String? = null,
+        val country: String? = null,
     ) : AppState
 }
 
@@ -284,6 +286,14 @@ class AppController(context: Context) {
     fun sendSpaceMessage(content: String, accountUid: String, displayName: String): Boolean {
         if (content.isBlank()) return false
         return realtime?.sendMessage(content, accountUid, displayName) == true
+    }
+
+    fun saveProfile(current: AppState.SignedIn, name: String, bio: String, city: String, country: String, intent: String, onDone: (AppState.SignedIn?, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.updateProfile(name, bio, city, country, intent) } }
+                .onSuccess { identity -> main.post { onDone(identity.toSignedIn(current.spaces), null) } }
+                .onFailure { error -> main.post { onDone(null, humanMessage(error)) } }
+        }
     }
 
     fun loadSpacePanel(spaceUid: String, section: String, onResult: (List<JSONObject>, String?) -> Unit) {
@@ -681,6 +691,7 @@ class AppController(context: Context) {
         avatar = avatar,
         socialIntent = socialIntent,
         spaces = spaces,
+        city = city, country = country,
     )
 
     private fun parseMessage(json: JSONObject): PubChatApi.ChatMessage? = parseChatMessage(json)
