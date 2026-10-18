@@ -5,6 +5,13 @@
 **Репозитории**
 - Android: [cyrox007/PubChat-Android](https://github.com/cyrox007/PubChat-Android), основная ветка `master`.
 - Backend + веб-клиент: [cyrox007/PubChat](https://github.com/cyrox007/PubChat), основная ветка `main`. Это актуальное имя основной системы после переименования `cyrox007/chat` → `cyrox007/PubChat`.
+- iOS: [cyrox007/PubChat-iOS](https://github.com/cyrox007/PubChat-iOS), основная ветка `main`. Нативный SwiftUI-клиент в начальной стадии, CI сборка на облачном macOS без локального Mac.
+
+## Единая трёхклиентная продуктовая линия
+
+Версия PubChat 1.0 требует **одинаковой пользовательской функциональности Web, Android и iOS**. Каждый новый эпик должен использовать единые серверные API/permission contracts и проверяться на всех трёх клиентах. Допустимо временное отставание на этапе разработки, но эпик не считается завершённым до функционального паритета и device-проверок. Линия: 0.7 Social Core → 0.8 Living Spaces → 0.9 Product Experience → 1.0 parity/release gate.
+
+Источник плана: [docs/roadmap.md](https://github.com/cyrox007/PubChat/blob/main/docs/roadmap.md).
 
 ## Архитектура и сборка
 
