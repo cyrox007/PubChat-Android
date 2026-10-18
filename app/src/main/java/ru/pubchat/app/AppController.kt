@@ -371,6 +371,22 @@ class AppController(context: Context) {
         }
     }
 
+    fun loadBirthdayRemindersPreference(onResult: (Boolean?, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.birthdayReminderEnabled() } }
+                .onSuccess { enabled -> main.post { onResult(enabled, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
+    fun setBirthdayRemindersPreference(enabled: Boolean, onResult: (Boolean?, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.setBirthdayReminderEnabled(enabled) } }
+                .onSuccess { updated -> main.post { onResult(updated, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
     fun loadNotifications(onResult: (List<PubChatApi.Notice>, String?) -> Unit) {
         executor.execute {
             runCatching { authenticated { api.notifications() } }
