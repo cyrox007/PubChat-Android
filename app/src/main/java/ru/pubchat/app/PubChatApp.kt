@@ -242,6 +242,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var notices by remember { mutableStateOf<List<PubChatApi.Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
     var noticesError by remember { mutableStateOf<String?>(null) }
+    var birthdayRemindersEnabled by remember { mutableStateOf(false) }
+    var birthdayRemindersBusy by remember { mutableStateOf(false) }
+    var birthdayRemindersError by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(controller, lifecycleOwner) {
         val onStatus: (String, String?, String) -> Unit = { phase, peer, mode ->
@@ -271,6 +274,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     }
 
     fun loadNotices() {
+        controller.loadBirthdayRemindersPreference { enabled, error ->
+            if (enabled != null) birthdayRemindersEnabled = enabled
+            birthdayRemindersError = error
+        }
         noticesLoading = true
         controller.loadNotifications { loaded, error ->
             notices = loaded
@@ -343,6 +350,19 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             friendshipBusyUid = null
             if (relationship != null && error == null) loadFriendships()
             else friendshipError = error ?: "Не удалось обработать заявку"
+        }
+    }
+
+    fun setBirthdayReminders(enabled: Boolean) {
+        if (birthdayRemindersBusy) return
+        birthdayRemindersBusy = true
+        birthdayRemindersError = null
+        controller.setBirthdayRemindersPreference(enabled) { saved, error ->
+            birthdayRemindersBusy = false
+            if (saved != null) {
+                birthdayRemindersEnabled = saved
+                loadNotices()
+            } else birthdayRemindersError = error ?: "Не удалось обновить настройку"
         }
     }
 
@@ -721,13 +741,22 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                 )
                 AppSection.MESSENGER -> MessengerListContent(dialogs, dialogsLoading, messengerError, onlineStatuses, ::openDialog) { loadDialogsAndConnect() }
                 AppSection.NOTIFICATIONS -> NotificationContent(
-                    notices, noticesLoading, noticesError, ::loadNotices, ::openNotice
-                ) {
-                    controller.markAllNotificationsRead { error ->
-                        if (error == null) notices = notices.map { it.copy(read = true) }
-                        else noticesError = error
-                    }
-                }
+                    notices = notices,
+                    loading = noticesLoading,
+                    error = noticesError,
+                    onReload = ::loadNotices,
+                    onOpen = ::openNotice,
+                    onReadAll = {
+                        controller.markAllNotificationsRead { error ->
+                            if (error == null) notices = notices.map { it.copy(read = true) }
+                            else noticesError = error
+                        }
+                    },
+                    birthdayEnabled = birthdayRemindersEnabled,
+                    birthdayBusy = birthdayRemindersBusy,
+                    birthdayError = birthdayRemindersError,
+                    onBirthdayToggle = ::setBirthdayReminders,
+                )
                 AppSection.PROFILE -> ru.pubchat.app.ui.components.ProfilePanel(state, controller, onState)
                 AppSection.PERSON -> PersonContent(
                     person = person,
