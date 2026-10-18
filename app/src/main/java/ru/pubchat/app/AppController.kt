@@ -116,6 +116,22 @@ class AppController(context: Context) {
         }
     }
 
+    fun loadNotifications(onResult: (List<PubChatApi.Notice>, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.notifications() } }
+                .onSuccess { items -> main.post { onResult(items, null) } }
+                .onFailure { error -> main.post { onResult(emptyList(), humanMessage(error)) } }
+        }
+    }
+
+    fun markNotificationRead(uid: String, onDone: (String?) -> Unit) = messengerAction(onDone) {
+        api.markNotificationRead(uid)
+    }
+
+    fun markAllNotificationsRead(onDone: (String?) -> Unit) = messengerAction(onDone) {
+        api.markAllNotificationsRead()
+    }
+
     fun loadDialogs(onResult: (List<PubChatApi.DialogSummary>, String?) -> Unit) {
         executor.execute {
             runCatching { authenticated { api.dialogs() } }
