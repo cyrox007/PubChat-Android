@@ -24,6 +24,12 @@ class PubChatApi(
         val country: String? = null,
     )
 
+    data class PersonaSummary(
+        val uid: String, val handle: String,
+        val displayName: String, val isPrimary: Boolean,
+    )
+    data class PersonaList(val personas: List<PersonaSummary>, val activePersonaUid: String?)
+
     data class RefreshResult(val accessToken: String, val refreshCookie: String?)
 
     data class SpaceSummary(
