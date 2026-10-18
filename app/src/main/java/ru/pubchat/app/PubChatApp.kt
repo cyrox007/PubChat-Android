@@ -1,5 +1,7 @@
 package ru.pubchat.app
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,7 +38,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import ru.pubchat.app.core.network.PubChatApi
 
-enum class AppSection { SPACES, PEOPLE, MESSENGER, PROFILE, PERSON, SPACE, MESSENGER_CHAT }
+enum class AppSection { SPACES, PEOPLE, MESSENGER, PROFILE, PERSON, SPACE, MESSENGER_CHAT, NOTIFICATIONS }
 
 @Composable
 fun PubChatApp(controller: AppController) {
@@ -161,11 +163,23 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var selectedMessageUid by remember { mutableStateOf<String?>(null) }
     var actionMode by remember { mutableStateOf<String?>(null) }
     var actionDraft by remember { mutableStateOf("") }
+    var notices by remember { mutableStateOf<List<PubChatApi.Notice>>(emptyList()) }
+    var noticesLoading by remember { mutableStateOf(false) }
+    var noticesError by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
             controller.closeSpace()
             controller.closeMessenger()
+        }
+    }
+
+    fun loadNotices() {
+        noticesLoading = true
+        controller.loadNotifications { loaded, error ->
+            notices = loaded
+            noticesError = error
+            noticesLoading = false
         }
     }
 
@@ -234,6 +248,18 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         }
     }
 
+    fun openNotice(notice: PubChatApi.Notice) {
+        controller.markNotificationRead(notice.uid) { error ->
+            if (error == null) notices = notices.map { if (it.uid == notice.uid) it.copy(read = true) else it }
+            else noticesError = error
+        }
+        val target = notice.targetUid ?: return
+        when (notice.surface) {
+            "space", "room" -> state.spaces.find { it.uid == target }?.let { openSpace(it) }
+            "messenger", "dm" -> loadDialogsAndConnect(target)
+        }
+    }
+
     fun openDialog(dialog: PubChatApi.DialogSummary) {
         activeDialog = dialog.copy(unreadCount = 0)
         dialogs = dialogs.map { if (it.partnerUid == dialog.partnerUid) it.copy(unreadCount = 0) else it }
@@ -257,6 +283,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             AppSection.SPACES -> "Пространства"
                             AppSection.PEOPLE -> "Люди"
                             AppSection.MESSENGER -> "Сообщения"
+                            AppSection.NOTIFICATIONS -> "Уведомления"
                             AppSection.PROFILE -> "Мой образ"
                             AppSection.PERSON -> person?.displayName ?: "Образ"
                             AppSection.SPACE -> activeSpace?.name ?: "Пространство"
@@ -289,6 +316,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     NavButton("Пространства", section == AppSection.SPACES) { controller.closeMessenger(); section = AppSection.SPACES }
                     NavButton("Люди", section == AppSection.PEOPLE) { controller.closeMessenger(); section = AppSection.PEOPLE; loadPeople() }
                     NavButton("Сообщения", section == AppSection.MESSENGER) { section = AppSection.MESSENGER; loadDialogsAndConnect() }
+                    NavButton("Важное", section == AppSection.NOTIFICATIONS) { controller.closeMessenger(); section = AppSection.NOTIFICATIONS; loadNotices() }
                     NavButton("Профиль", section == AppSection.PROFILE) { controller.closeMessenger(); section = AppSection.PROFILE }
                 }
             }
@@ -303,12 +331,22 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     }
                 }
                 AppSection.MESSENGER -> MessengerListContent(dialogs, dialogsLoading, messengerError, onlineStatuses, ::openDialog) { loadDialogsAndConnect() }
+                AppSection.NOTIFICATIONS -> NotificationContent(
+                    notices, noticesLoading, noticesError, ::loadNotices, ::openNotice
+                ) {
+                    controller.markAllNotificationsRead { error ->
+                        if (error == null) notices = notices.map { it.copy(read = true) }
+                        else noticesError = error
+                    }
+                }
                 AppSection.PROFILE -> ProfileContent(state)
                 AppSection.PERSON -> PersonContent(person) { target ->
                     val synthetic = PubChatApi.DialogSummary(target.accountUid, target.displayName, target.handle, target.avatar, null, null, 0)
                     loadDialogsAndConnect(target.accountUid, synthetic)
                 }
-                AppSection.SPACE -> SpaceChatContent(activeSpace, messages, connection, chatError, draft, { draft = it }) {
+                AppSection.SPACE -> SpaceChatContent(activeSpace, messages, connection, chatError, draft, { draft = it }, { uri ->
+                    controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error }
+                }) {
                     if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) draft = "" else chatError = "Соединение ещё не готово"
                 }
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
@@ -452,7 +490,7 @@ private fun PersonContent(person: PubChatApi.PersonSummary?, onMessage: (PubChat
 }
 
 @Composable
-private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<PubChatApi.ChatMessage>, connection: String, error: String?, draft: String, onDraft: (String) -> Unit, onSend: () -> Unit) {
+private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<PubChatApi.ChatMessage>, connection: String, error: String?, draft: String, onDraft: (String) -> Unit, onAttach: (android.net.Uri) -> Unit, onSend: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         space?.description?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         error?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
@@ -460,7 +498,13 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Здесь пока тихо. Начните разговор." else "Подключаем разговор…") }
             items(messages, key = PubChatApi.ChatMessage::uid) { message -> MessageCard(message, false, null) }
         }
-        Composer(draft, onDraft, connection == "connected", onSend)
+        val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) onAttach(uri)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected") { Text("Прикрепить") }
+            Box(Modifier.weight(1f)) { Composer(draft, onDraft, connection == "connected", onSend) }
+        }
     }
 }
 
@@ -518,7 +562,7 @@ private fun MessageCard(message: PubChatApi.ChatMessage, own: Boolean, onClick: 
         Column(Modifier.padding(10.dp)) {
             if (!own) Text(message.senderName ?: "Участник PubChat", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             if (message.replyToUid != null) Text("↪ Ответ на сообщение", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            Text(if (message.contentType == "deleted") "Сообщение удалено" else message.content)
+            Text(if (message.contentType == "deleted") "Сообщение удалено" else message.attachmentName?.let { "📎 $it" } ?: message.content)
             message.reactions?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
             if (own) Text(if (message.isRead) "Прочитано" else "Отправлено", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -531,6 +575,51 @@ private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean,
         OutlinedTextField(draft, onDraft, Modifier.weight(1f), placeholder = { Text("Сообщение") }, maxLines = 4, enabled = enabled)
         Spacer(Modifier.padding(4.dp))
         Button(onClick = onSend, enabled = enabled && draft.isNotBlank()) { Text("Отпр.") }
+    }
+}
+
+@Composable
+private fun NotificationContent(
+    notices: List<PubChatApi.Notice>,
+    loading: Boolean,
+    error: String?,
+    onReload: () -> Unit,
+    onOpen: (PubChatApi.Notice) -> Unit,
+    onReadAll: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Требует внимания", style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = onReadAll, enabled = notices.any { !it.read }) { Text("Прочитать всё") }
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (loading) CircularProgressIndicator()
+        val pending = notices.filterNot { it.read }
+        val archived = notices.filter { it.read }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+            if (pending.isEmpty()) item { Text("Нет новых уведомлений") }
+            items(pending, key = { "new:${it.uid}" }) { notice ->
+                Card(Modifier.fillMaxWidth().clickable { onOpen(notice) }) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(notice.title, fontWeight = FontWeight.Bold)
+                        Text(notice.body)
+                        Text("Открыть", color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            if (archived.isNotEmpty()) {
+                item { Text("Прочитанные", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
+                items(archived, key = { "read:${it.uid}" }) { notice ->
+                    Card(Modifier.fillMaxWidth().clickable { onOpen(notice) }) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(notice.title)
+                            Text(notice.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+            item { TextButton(onClick = onReload) { Text("Обновить") } }
+        }
     }
 }
 
