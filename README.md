@@ -61,3 +61,13 @@ Space uploads use the site's existing realtime data-URL media envelope, limited 
 ## Deep links
 
 Authenticated routes: `pubchat://spaces/<uuid>`, `pubchat://messenger/<uuid>`, `https://pubchat.ru/spaces/<uuid>` and `https://pubchat.ru/messenger/<uuid>`. Invalid UUIDs or untrusted domains are ignored. Pending links survive the login screen. Android OS verification of HTTPS App Links is not enabled until the public domain hosts its matching Digital Asset Links statement; otherwise Android may show a chooser.
+
+## Android Firebase setup (required before push works)
+
+1. Create a Firebase Android app with package `ru.pubchat.app` for release. The debug variant uses `ru.pubchat.app.debug`, so register that variant separately for local testing.
+2. Place `google-services.json` in `app/` locally (never commit it). The Google Services Gradle plugin is activated only when the file is present.
+3. On the PubChat server configure `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL` and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY` (private key with escaped newlines), using the matching Firebase project. Keep these private.
+4. Enable `native_push_messenger` via the existing account notification preference endpoint. Ensure the existing scheduled native-push delivery worker actually runs.
+5. Rebuild/reinstall Android; after login it registers/updates the device FCM token via `POST /notifications/v1/native-push/devices` and revokes registration on logout.
+
+FCM is inactive without Firebase configuration. UI notification center still works without it. Push payloads are generic and never carry private message plaintext. Production delivery must be smoke-tested on a physical device. Android app links require matching domain assetlinks.json separately.
