@@ -175,6 +175,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var callPeer by remember { mutableStateOf<String?>(null) }
     var callMode by remember { mutableStateOf("audio") }
     var callMuted by remember { mutableStateOf(false) }
+    var callSpeaker by remember { mutableStateOf(false) }
+    var callCameraEnabled by remember { mutableStateOf(true) }
     val callActivity = LocalContext.current as? Activity
     var notices by remember { mutableStateOf<List<PubChatApi.Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
@@ -184,6 +186,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         controller.connectCalls { phase, peer, mode ->
             callPhase = phase
             if (peer != null) callPeer = peer
+            if (phase == "incoming" || phase == "outgoing") { callSpeaker = mode == "video"; callCameraEnabled = true; callMuted = false }
             callMode = mode
         }
         onDispose {
@@ -357,6 +360,12 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { callMuted = !callMuted; controller.setCallMuted(callMuted) }) {
                                 Text(if (callMuted) "Включить микрофон" else "Выключить микрофон")
+                            }
+                            TextButton(onClick = { callSpeaker = !callSpeaker; controller.setCallSpeaker(callSpeaker) }) {
+                                Text(if (callSpeaker) "Разговорный" else "Динамик")
+                            }
+                            if (callMode == "video") TextButton(onClick = { callCameraEnabled = !callCameraEnabled; controller.setCallCamera(callCameraEnabled) }) {
+                                Text(if (callCameraEnabled) "Выключить камеру" else "Включить камеру")
                             }
                         }
                     }
