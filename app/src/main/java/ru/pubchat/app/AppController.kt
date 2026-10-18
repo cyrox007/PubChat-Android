@@ -419,6 +419,7 @@ class AppController(context: Context) {
             isRead = json.optBoolean("is_read", false),
             reactions = metadata?.optJSONObject("reactions")?.toString(),
             replyToUid = metadata?.optJSONObject("reply_to")?.optString("uid")?.takeIf { it.isNotBlank() },
+            attachmentName = metadata?.optJSONArray("files")?.optJSONObject(0)?.optString("name")?.takeIf { it.isNotBlank() },
         )
     }
 
