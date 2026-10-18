@@ -176,6 +176,8 @@ class PubChatApi(
 
     fun callIceConfig(): JSONObject = JSONObject(request("GET", "/calls/v1/ice-config").body)
 
+    fun pendingIncomingCall(): JSONObject? = JSONObject(request("GET", "/calls/v1/pending-offer").body).optJSONObject("offer")
+
     fun editPrivateMessage(messageUid: String, content: String) {
         request("PATCH", "/messages/v2/messenger/$messageUid", JSONObject().put("content", content.trim()))
     }
