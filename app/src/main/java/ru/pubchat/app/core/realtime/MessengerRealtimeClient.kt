@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import ru.pubchat.app.BuildConfig
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.network.HttpClientCleanup
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -98,8 +99,7 @@ class MessengerRealtimeClient(
     fun close() {
         closeSocket()
         scheduler.shutdownNow()
-        client.dispatcher.executorService.shutdown()
-        client.connectionPool.evictAll()
+        HttpClientCleanup.release(client)
     }
 
     private fun send(frame: JSONObject): Boolean = socket?.send(frame.toString()) == true
