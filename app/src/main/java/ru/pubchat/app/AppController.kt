@@ -330,6 +330,7 @@ class AppController(context: Context) {
                     val socket = CallSignaling(
                         onSignal = { frame -> main.post { handleCallSignal(frame) } },
                         onStatus = { status -> main.post {
+                            if (status == "ready") reloadPendingIncomingCall()
                             if (status == "disconnected") {
                                 callEngine?.end(false)
                                 callAudio.release()
@@ -350,6 +351,19 @@ class AppController(context: Context) {
                     socket.connect(ticket)
                 } }
                 .onFailure { main.post { onStatus("unavailable", null, "audio") } }
+        }
+    }
+
+    private fun reloadPendingIncomingCall() {
+        executor.execute {
+            runCatching { authenticated { api.pendingIncomingCall() } }
+                .onSuccess { offer ->
+                    if (offer != null) main.post {
+                        // Same authenticated call_signal envelope as the live WebSocket.
+                        // Never accept an offer without the user's explicit consent.
+                        if (callSocket != null) handleCallSignal(offer)
+                    }
+                }
         }
     }
 

@@ -87,3 +87,7 @@ Foreground WebRTC calls acquire transient communication audio focus, switch to M
 An outgoing or accepted call started in the visible Activity now starts an ongoing Android foreground service with microphone/camera service types and a persistent call notification. This helps preserve an ongoing call when the Activity is backgrounded. It does not wake a killed app for incoming calls. Call termination, disconnect and logout stop the service. Android 14+ restrictions mean microphone/camera FGS must start while the app is foregrounded and permissions are already granted. Battery policies and headset routing require physical-device testing.
 
 **Not implemented:** background incoming call push, call offer persistence/claim with expiry, notification answer/decline actions, Telecom integration, cross-device WebRTC smoke. Current WebSocket-only offers cannot be answered after process death; do not treat a generic FCM message as an offer.
+
+## Incoming calls from background (FCM recovery slice)
+
+Call push notifications use a distinct Android notification channel. On opening the app, the call WebSocket connects using a fresh ticket; the app fetches `/calls/v1/pending-offer` and shows a consent-required incoming call dialog if the offer has not expired. SDP remains backend-side and never appears in FCM data. This does **not** implement lock-screen full-screen intents, direct answer/decline buttons, Telecom integration, or reliable process-death delivery guarantees; Android/Firebase provisioning and physical-device tests are required.

@@ -5,6 +5,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.viewinterop.AndroidView
@@ -178,18 +181,25 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var callSpeaker by remember { mutableStateOf(false) }
     var callCameraEnabled by remember { mutableStateOf(true) }
     val callActivity = LocalContext.current as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
     var notices by remember { mutableStateOf<List<PubChatApi.Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
     var noticesError by remember { mutableStateOf<String?>(null) }
 
-    DisposableEffect(controller) {
-        controller.connectCalls { phase, peer, mode ->
+    DisposableEffect(controller, lifecycleOwner) {
+        val onStatus: (String, String?, String) -> Unit = { phase, peer, mode ->
             callPhase = phase
             if (peer != null) callPeer = peer
             if (phase == "incoming" || phase == "outgoing") { callSpeaker = mode == "video"; callCameraEnabled = true; callMuted = false }
             callMode = mode
         }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) controller.connectCalls(onStatus)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        controller.connectCalls(onStatus)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             controller.disconnectCalls()
             controller.closeSpace()
             controller.closeMessenger()
