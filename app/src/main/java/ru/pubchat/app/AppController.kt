@@ -92,6 +92,7 @@ class AppController(context: Context) {
     private var spaceEpoch = 0L
     private var messengerEpoch = 0L
     private var spaceConnecting = false
+    private var spaceInitialized = false
     private var messengerConnecting = false
     private var spaceStatus = "idle"
     private var messengerStatus = "idle"
@@ -129,7 +130,7 @@ class AppController(context: Context) {
         if (!foreground) return
         if (spaceSubscription != null && !spaceConnecting && spaceStatus in setOf("disconnected", "reconnecting")) {
             cancelSpaceRetry()
-            connectSpace(spaceEpoch, initial = false)
+            connectSpace(spaceEpoch, initial = !spaceInitialized)
         }
         if (messengerSubscription != null && !messengerConnecting && messengerStatus in setOf("disconnected", "reconnecting")) {
             cancelMessengerRetry()
@@ -156,7 +157,7 @@ class AppController(context: Context) {
         val delay = RealtimeRetryPolicy.delayMillis(spaceRetries++)
         val task = Runnable {
             spaceRetryTask = null
-            connectSpace(epoch, initial = false)
+            connectSpace(epoch, initial = !spaceInitialized)
         }
         spaceRetryTask = task
         main.postDelayed(task, delay)
@@ -314,7 +315,10 @@ class AppController(context: Context) {
                 main.post {
                     if (epoch != spaceEpoch || spaceSubscription !== target) return@post
                     spaceConnecting = false
-                    if (space != null) target.onReady(space)
+                    if (space != null) {
+                        spaceInitialized = true
+                        target.onReady(space)
+                    }
                     realtime?.close()
                     lateinit var client: SpaceRealtimeClient
                     client = SpaceRealtimeClient(
@@ -833,6 +837,7 @@ class AppController(context: Context) {
         ++spaceEpoch
         spaceSubscription = null
         spaceConnecting = false
+        spaceInitialized = false
         spaceStatus = "idle"
         cancelSpaceRetry()
         realtime?.close()
