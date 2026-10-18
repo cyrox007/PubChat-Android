@@ -1,6 +1,7 @@
 package ru.pubchat.app
 
 import android.Manifest
+import ru.pubchat.app.core.push.FcmRegistration
 import android.content.Intent
 import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,7 +34,9 @@ fun parsePubChatDeepLink(uri: Uri?): PubChatDeepLink? {
 }
 
 class MainActivity : ComponentActivity() {
-    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) FcmRegistration.register(applicationContext)
+    }
     private val destination = mutableStateOf<PubChatDeepLink?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
