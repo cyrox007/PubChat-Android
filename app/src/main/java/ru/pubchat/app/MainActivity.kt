@@ -32,7 +32,20 @@ fun parsePubChatDeepLink(uri: Uri?): PubChatDeepLink? {
     return PubChatDeepLink(kind, uid)
 }
 
+data class IncomingCallAction(val kind: String, val callUid: String)
+
 class MainActivity : ComponentActivity() {
+    private val callAction = mutableStateOf<IncomingCallAction?>(null)
+    private fun resolveCallAction(intent: Intent?): IncomingCallAction? {
+        val kind = when (intent?.action) {
+            "ru.pubchat.app.call.ANSWER" -> "answer"
+            "ru.pubchat.app.call.DECLINE" -> "decline"
+            else -> return null
+        }
+        val uid = intent.getStringExtra("call_uid") ?: return null
+        if (runCatching { java.util.UUID.fromString(uid) }.isFailure) return null
+        return IncomingCallAction(kind, uid)
+    }
     private val destination = mutableStateOf<PubChatDeepLink?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,10 +55,11 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 3001)
         }
         destination.value = parsePubChatDeepLink(intent?.data)
+        callAction.value = resolveCallAction(intent)
         val controller = AppController(applicationContext)
         setContent {
             PubChatTheme {
-                PubChatApp(controller, destination.value) { destination.value = null }
+                PubChatApp(controller, destination.value, { destination.value = null }, callAction.value) { callAction.value = null }
             }
         }
     }
@@ -61,5 +75,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         destination.value = parsePubChatDeepLink(intent.data)
+        callAction.value = resolveCallAction(intent)
     }
 }
