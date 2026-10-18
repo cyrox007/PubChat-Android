@@ -375,7 +375,15 @@ class AppController(context: Context) {
                 val uid = frame.optString("call_uid")
                 when (frame.optString("signal_type")) {
                     "call_offer" -> {
-                        if (callEngine?.callUid != null || offerPending != null) {
+                        // The same offer can arrive over the live socket and
+                        // the authenticated Redis recovery endpoint. A duplicate
+                        // must never be declined as "busy".
+                        val pending = offerPending
+                        if (pending?.optString("call_uid") == uid && pending.optString("from_uid") == peer) {
+                            Unit
+                        } else if (callEngine?.callUid == uid && callEngine?.peerUid == peer) {
+                            Unit
+                        } else if (callEngine?.callUid != null || pending != null) {
                             callSocket?.send(peer, uid, "call_decline", JSONObject().put("reason", "busy"))
                         } else {
                             offerPending = frame
