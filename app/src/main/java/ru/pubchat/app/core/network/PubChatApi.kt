@@ -433,7 +433,21 @@ class PubChatApi(
             JSONObject().put("installation_uid", installationUid))
     }
 
+    fun birthdayReminderEnabled(): Boolean {
+        val root = JSONObject(request("GET", "/notifications/v1/message-preferences").body)
+        return root.optJSONObject("preferences")?.optBoolean("friend_birthday_reminders", false) ?: false
+    }
+
+    fun setBirthdayReminderEnabled(enabled: Boolean): Boolean {
+        val body = JSONObject().put("friend_birthday_reminders", enabled)
+        val root = JSONObject(request("PATCH", "/notifications/v1/message-preferences", body).body)
+        return root.optJSONObject("preferences")?.optBoolean("friend_birthday_reminders", false) ?: false
+    }
+
     fun notifications(): List<Notice> {
+        // First-party server synchronizes deduplicated birthday + activity
+        // reminders. This is in-app delivery, not a background FCM message.
+        request("POST", "/notifications/v1/sync")
         val root = JSONObject(request("GET", "/notifications/v1?limit=50").body)
         val items = root.optJSONArray("notifications") ?: JSONArray()
         return buildList {
