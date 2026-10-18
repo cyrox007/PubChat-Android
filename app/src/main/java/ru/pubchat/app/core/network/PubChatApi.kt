@@ -199,6 +199,22 @@ class PubChatApi(
     }
 
 
+    fun registerNativePush(installationUid: String, token: String) {
+        val body = JSONObject()
+            .put("installation_uid", installationUid)
+            .put("platform", "android")
+            .put("provider", "fcm")
+            .put("token", token)
+            .put("device_label", "Android")
+            .put("app_version", BuildConfig.VERSION_NAME)
+        request("POST", "/notifications/v1/native-push/devices", body)
+    }
+
+    fun removeNativePush(installationUid: String) {
+        request("POST", "/notifications/v1/native-push/devices/remove",
+            JSONObject().put("installation_uid", installationUid))
+    }
+
     fun notifications(): List<Notice> {
         val root = JSONObject(request("GET", "/notifications/v1?limit=50").body)
         val items = root.optJSONArray("notifications") ?: JSONArray()
