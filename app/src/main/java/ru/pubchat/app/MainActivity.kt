@@ -1,6 +1,9 @@
 package ru.pubchat.app
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -30,11 +33,13 @@ fun parsePubChatDeepLink(uri: Uri?): PubChatDeepLink? {
 }
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val destination = mutableStateOf<PubChatDeepLink?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         destination.value = parsePubChatDeepLink(intent?.data)
         val controller = AppController(applicationContext)
         setContent {
