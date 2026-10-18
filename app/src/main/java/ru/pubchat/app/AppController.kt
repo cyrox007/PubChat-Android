@@ -356,6 +356,7 @@ class AppController(context: Context) {
                         status = { phase -> main.post {
                             if (callSocket !== socket) return@post
                             if (phase == "reconnecting") {
+                                callEngine?.restartIce()
                                 val recoveryEpoch = ++iceRecoveryEpoch
                                 main.postDelayed({
                                     if (recoveryEpoch == iceRecoveryEpoch && callEngine?.callUid != null) {
@@ -440,7 +441,10 @@ class AppController(context: Context) {
                         if (pending?.optString("call_uid") == uid && pending.optString("from_uid") == peer) {
                             Unit
                         } else if (callEngine?.callUid == uid && callEngine?.peerUid == peer) {
-                            Unit
+                            if (frame.optBoolean("ice_restart")) {
+                                ++iceRecoveryEpoch
+                                callEngine?.answerRestart(frame.optJSONObject("sdp") ?: JSONObject())
+                            }
                         } else if (callEngine?.callUid != null || pending != null) {
                             callSocket?.send(peer, uid, "call_decline", JSONObject().put("reason", "busy"))
                         } else {
