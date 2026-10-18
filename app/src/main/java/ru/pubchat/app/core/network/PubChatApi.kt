@@ -190,8 +190,13 @@ class PubChatApi(
         request("POST", "/moderation/v1/spaces/$uid/actions", body)
     }
 
-    fun replySpaceMessage(messageUid: String, content: String) {
-        request("POST", "/messages/v2/room/$messageUid/reply", JSONObject().put("content", content.trim()))
+    fun replySpaceMessage(messageUid: String, content: String): ChatMessage {
+        val response = JSONObject(request("POST", "/messages/v2/room/$messageUid/reply",
+            JSONObject().put("content", content.trim())).body)
+        val saved = response.optJSONObject("message")
+            ?: error("Сервер не подтвердил ответ в комнате")
+        return parseChatMessage(saved)
+            ?: error("Не удалось прочитать ответ сервера")
     }
 
     fun people(query: String = ""): List<PersonSummary> {
