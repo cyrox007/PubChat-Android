@@ -85,7 +85,7 @@ class PubChatApi(
 
     fun login(identifier: String, password: String): Identity {
         val body = JSONObject().put("identifier", identifier.trim()).put("password", password)
-        val response = request("POST", "/identity/v2/login", body = body)
+        val response = request("POST", "/identity/v2/login", body = body, includeAccessToken = false, includeRefreshCookie = false)
         return parseIdentity(JSONObject(response.body), response.refreshCookie)
     }
 
@@ -102,7 +102,7 @@ class PubChatApi(
             .put("password", password)
             .put("social_intent", socialIntent)
         email?.trim()?.takeIf { it.isNotBlank() }?.let { body.put("email", it) }
-        val response = request("POST", "/identity/v2/register", body = body)
+        val response = request("POST", "/identity/v2/register", body = body, includeAccessToken = false, includeRefreshCookie = false)
         return parseIdentity(JSONObject(response.body), response.refreshCookie)
     }
 
@@ -329,7 +329,7 @@ class PubChatApi(
 
     private data class HttpResult(val body: String, val refreshCookie: String?)
 
-    private fun request(method: String, path: String, body: JSONObject? = null, includeAccessToken: Boolean = true): HttpResult {
+    private fun request(method: String, path: String, body: JSONObject? = null, includeAccessToken: Boolean = true, includeRefreshCookie: Boolean = true): HttpResult {
         val base = BuildConfig.API_BASE_URL.trimEnd('/')
         val connection = (URL("$base$path").openConnection() as HttpURLConnection).apply {
             requestMethod = method
@@ -340,7 +340,7 @@ class PubChatApi(
             setRequestProperty("X-PubChat-Device-ID", deviceUid())
             setRequestProperty("User-Agent", "PubChat-Android/${BuildConfig.VERSION_NAME}")
             if (includeAccessToken) accessToken()?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Authorization", "Bearer $it") }
-            refreshCookie()?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Cookie", it) }
+            if (includeRefreshCookie) refreshCookie()?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Cookie", it) }
             if (body != null) {
                 doOutput = true
                 outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(body.toString()) }
