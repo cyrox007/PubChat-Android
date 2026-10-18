@@ -49,6 +49,7 @@ class AppController(context: Context) {
     private var callEngine: NativeCallEngine? = null
     private val callAudio = CallAudioRouter(appContext)
     private var offerPending: JSONObject? = null
+    private var callGeneration = 0L
     private var callStatusCallback: ((String, String?, String) -> Unit)? = null
     private var messengerRealtime: MessengerRealtimeClient? = null
 
@@ -405,9 +406,11 @@ class AppController(context: Context) {
     }
 
     fun startCall(peer: String, video: Boolean) {
+        val generation = ++callGeneration
         executor.execute {
             runCatching { authenticated { api.callIceConfig() } }
                 .onSuccess { ice -> main.post {
+                    if (generation != callGeneration) return@post
                     runCatching {
                         require(callSocket != null) { "Нет соединения для звонков" }
                         callAudio.start(video)
@@ -426,18 +429,20 @@ class AppController(context: Context) {
     fun acceptCall() {
         val frame = offerPending ?: return
         offerPending = null
+        val generation = ++callGeneration
         val peer = frame.optString("from_uid")
         val mode = frame.optString("mode", "audio")
         executor.execute {
             runCatching { authenticated { api.callIceConfig() } }
                 .onSuccess { ice -> main.post {
+                    if (generation != callGeneration) return@post
                     runCatching {
                         callAudio.start(mode == "video")
                         CallForegroundService.start(appContext, mode == "video")
                         callEngine?.begin(peer, mode == "video", ice, frame.optString("call_uid"))
                         callStatusCallback?.invoke("connecting", peer, mode)
                         callEngine?.answer(frame.optJSONObject("sdp") ?: JSONObject())
-                    }.onFailure { callAudio.release(); callStatusCallback?.invoke("error", peer, mode) }
+                    }.onFailure { callEngine?.end(false); CallForegroundService.stop(appContext); callAudio.release(); callSocket?.send(peer, frame.optString("call_uid"), "call_decline", JSONObject().put("reason", "media_unavailable")); callStatusCallback?.invoke("error", peer, mode) }
                 } }
                 .onFailure { main.post {
                     callSocket?.send(peer, frame.optString("call_uid"), "call_decline", JSONObject().put("reason", "media_unavailable"))
@@ -447,6 +452,7 @@ class AppController(context: Context) {
     }
 
     fun endCall(decline: Boolean = false) {
+        ++callGeneration
         val pending = offerPending
         if (pending != null) {
             callSocket?.send(pending.optString("from_uid"), pending.optString("call_uid"),
@@ -469,6 +475,7 @@ class AppController(context: Context) {
     fun setCallCamera(enabled: Boolean) { callEngine?.camera(enabled) }
 
     fun disconnectCalls() {
+        ++callGeneration
         callEngine?.release()
         callAudio.release()
         CallForegroundService.stop(appContext)
