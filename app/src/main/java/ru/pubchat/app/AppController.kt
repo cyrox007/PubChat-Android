@@ -399,7 +399,7 @@ class AppController(context: Context) {
                             when (frame.optString("type")) {
                                 "realtime_ready" -> {
                                     if (target.dialogUids.isNotEmpty()) client.subscribeStatuses(target.dialogUids)
-                                    target.activePeerUid?.let(client::requestConversation)
+                                    target.activePeerUid?.let { peer -> client.requestConversation(peer) }
                                 }
                                 "conversation" -> {
                                     val peer = frame.optString("other_user_uid")
