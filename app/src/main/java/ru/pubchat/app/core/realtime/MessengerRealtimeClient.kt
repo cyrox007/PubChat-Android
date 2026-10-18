@@ -21,7 +21,7 @@ class MessengerRealtimeClient(
     private val client = OkHttpClient.Builder().build()
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
     private var heartbeatTask: ScheduledFuture<*>? = null
-    private var socket: WebSocket? = null
+    @Volatile private var socket: WebSocket? = null
 
     fun connect(ticket: PubChatApi.RealtimeTicket, resumeToken: String? = null) {
         closeSocket()
@@ -43,6 +43,7 @@ class MessengerRealtimeClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (socket !== webSocket) return
                 val frame = runCatching { JSONObject(text) }.getOrNull() ?: return
                 if (frame.optString("type") == "realtime_ready") {
                     onState("connected")
@@ -55,12 +56,16 @@ class MessengerRealtimeClient(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (socket !== webSocket) return
                 stopHeartbeat()
-                onState(if (code == 1000) "idle" else "disconnected")
+                socket = null
+                onState(if (RealtimeRetryPolicy.terminalCloseCode(code)) "restricted" else "disconnected")
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (socket !== webSocket) return
                 stopHeartbeat()
+                socket = null
                 onState("disconnected")
             }
         })
@@ -129,7 +134,8 @@ class MessengerRealtimeClient(
 
     private fun closeSocket() {
         stopHeartbeat()
-        socket?.close(1000, "Client disconnect")
+        val old = socket
         socket = null
+        old?.close(1000, "Client disconnect")
     }
 }
