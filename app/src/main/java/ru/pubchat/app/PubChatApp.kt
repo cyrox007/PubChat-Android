@@ -229,7 +229,14 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             callMode = mode
         }
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) controller.connectCalls(onStatus)
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    controller.setForeground(true)
+                    controller.connectCalls(onStatus)
+                }
+                Lifecycle.Event.ON_STOP -> controller.setForeground(false)
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         controller.connectCalls(onStatus)
@@ -964,6 +971,8 @@ private fun connectionLabel(value: String) = when (value) {
     "authenticating" -> "Проверяем сессию"
     "connected" -> "В эфире"
     "disconnected" -> "Связь потеряна"
+    "reconnecting" -> "Восстанавливаем связь…"
+    "restricted" -> "Доступ ограничен"
     else -> "Не подключено"
 }
 
