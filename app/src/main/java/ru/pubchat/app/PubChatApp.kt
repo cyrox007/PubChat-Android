@@ -641,6 +641,36 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         } else peopleError = error
                     }
                 }
+                AppSection.FRIENDSHIPS -> FriendshipHubContent(
+                    tab = friendshipTab,
+                    rows = friendshipRows,
+                    total = friendshipTotal,
+                    loading = friendshipLoading,
+                    loadingMore = friendshipLoadingMore,
+                    error = friendshipError,
+                    busyUid = friendshipBusyUid,
+                    onTab = { selected ->
+                        if (selected != friendshipTab) {
+                            friendshipTab = selected
+                            loadFriendships()
+                        }
+                    },
+                    onReload = { loadFriendships() },
+                    onMore = { loadFriendships(append = true) },
+                    onOpen = { row ->
+                        personReturnSection = AppSection.FRIENDSHIPS
+                        personRelationship = null
+                        personRelationError = null
+                        controller.loadProfile(row.accountUid) { loaded, error ->
+                            if (loaded != null) {
+                                person = loaded
+                                section = AppSection.PERSON
+                                reloadPersonRelationship(loaded.accountUid)
+                            } else friendshipError = error
+                        }
+                    },
+                    onAction = ::friendshipAction,
+                )
                 AppSection.MESSENGER -> MessengerListContent(dialogs, dialogsLoading, messengerError, onlineStatuses, ::openDialog) { loadDialogsAndConnect() }
                 AppSection.NOTIFICATIONS -> NotificationContent(
                     notices, noticesLoading, noticesError, ::loadNotices, ::openNotice
@@ -792,8 +822,9 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
 }
 
 @Composable
-private fun PeopleContent(people: List<PubChatApi.PersonSummary>, loading: Boolean, error: String?, query: String, onQuery: (String) -> Unit, onSearch: () -> Unit, onOpen: (PubChatApi.PersonSummary) -> Unit) {
+private fun PeopleContent(people: List<PubChatApi.PersonSummary>, loading: Boolean, error: String?, query: String, onQuery: (String) -> Unit, onSearch: () -> Unit, onFriendships: () -> Unit, onOpen: (PubChatApi.PersonSummary) -> Unit) {
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        OutlinedButton(onClick = onFriendships, modifier = Modifier.fillMaxWidth()) { Text("Друзья и заявки") }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(query, onQuery, Modifier.weight(1f), label = { Text("Имя или @handle") }, singleLine = true)
             TextButton(onClick = onSearch) { Text("Найти") }
