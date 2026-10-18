@@ -1,6 +1,9 @@
 package ru.pubchat.app
 
+import android.Manifest
+import ru.pubchat.app.core.push.FcmRegistration
 import android.content.Intent
+import android.os.Build
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -35,12 +38,22 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 3001)
+        }
         destination.value = parsePubChatDeepLink(intent?.data)
         val controller = AppController(applicationContext)
         setContent {
             PubChatTheme {
                 PubChatApp(controller, destination.value) { destination.value = null }
             }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 3001 && grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            FcmRegistration.register(applicationContext)
         }
     }
 

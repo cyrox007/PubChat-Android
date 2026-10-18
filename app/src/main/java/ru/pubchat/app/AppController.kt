@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.push.FcmRegistration
 import ru.pubchat.app.core.realtime.MessengerRealtimeClient
 import ru.pubchat.app.core.realtime.SpaceRealtimeClient
 import ru.pubchat.app.core.session.SessionStore
@@ -51,7 +52,7 @@ class AppController(context: Context) {
             runCatching {
                 val identity = authenticated { api.me() }
                 identity to authenticated { api.spaces() }
-            }.onSuccess { (identity, spaces) -> main.post { onState(identity.toSignedIn(spaces)) } }
+            }.onSuccess { (identity, spaces) -> main.post { FcmRegistration.register(appContext); onState(identity.toSignedIn(spaces)) } }
                 .onFailure {
                     session.clearSession()
                     main.post { onState(AppState.SignedOut()) }
@@ -323,6 +324,7 @@ class AppController(context: Context) {
         closeSpace()
         closeMessenger()
         executor.execute {
+            runCatching { api.removeNativePush(session.deviceUid) }
             runCatching { api.logout() }
             session.clearSession()
             main.post { onState(AppState.SignedOut()) }

@@ -1,6 +1,12 @@
 plugins {
+    id("com.google.gms.google-services") version "4.4.2" apply false
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+// Firebase is opt-in: no secrets or google-services.json are committed.
+if (file("google-services.json").exists()) {
+    pluginManager.apply("com.google.gms.google-services")
 }
 
 val pubChatApiBaseUrl = providers.gradleProperty("PUBCHAT_API_BASE_URL")
@@ -58,6 +64,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.firebase:firebase-messaging:24.1.2")
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
