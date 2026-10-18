@@ -60,6 +60,7 @@ class PubChatApi(
         val isRead: Boolean = false,
         val reactions: String? = null,
         val replyToUid: String? = null,
+        val attachmentName: String? = null,
     )
 
     data class DialogSummary(
