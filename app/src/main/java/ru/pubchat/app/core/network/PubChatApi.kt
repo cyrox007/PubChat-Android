@@ -60,6 +60,14 @@ class PubChatApi(
         val socialIntent: String?,
     )
 
+    data class FriendshipEntry(
+        val accountUid: String,
+        val displayName: String,
+        val handle: String?,
+        val avatar: String?,
+    )
+    data class FriendshipPage(val rows: List<FriendshipEntry>, val total: Int)
+
     data class SocialRelationship(
         val accountUid: String,
         val following: Boolean,
@@ -246,6 +254,15 @@ class PubChatApi(
     fun publicProfile(accountUid: String): PersonSummary {
         val item = JSONObject(request("GET", "/identity/v2/profiles/$accountUid").body).getJSONObject("profile")
         return parsePerson(item, accountUid)
+    }
+
+    fun friendshipPage(tab: String, offset: Int = 0): FriendshipPage {
+        require(tab in setOf("incoming", "outgoing", "friends")) { "Неизвестный список дружбы" }
+        require(offset >= 0) { "Некорректное смещение" }
+        val path = if (tab == "friends") "/social/v1/friends?limit=50&offset=$offset"
+            else "/social/v1/friend-requests?direction=$tab&limit=50&offset=$offset"
+        val key = if (tab == "friends") "friends" else "requests"
+        return parseFriendshipPage(request("GET", path).body, key)
     }
 
     fun relationship(accountUid: String): SocialRelationship =
@@ -580,4 +597,26 @@ class PubChatApi(
 
     private fun JSONObject.optNullableString(key: String): String? = optString(key)
         .takeIf { it.isNotBlank() && it != "null" }
+}
+
+
+internal fun parseFriendshipPage(body: String, key: String): PubChatApi.FriendshipPage {
+    val root = JSONObject(body)
+    val items = root.optJSONArray(key) ?: JSONArray()
+    val rows = buildList {
+        for (index in 0 until items.length()) {
+            val row = items.optJSONObject(index) ?: continue
+            val accountUid = row.optString("account_uid").takeIf { it.isNotBlank() } ?: continue
+            val persona = row.optJSONObject("persona")
+            add(PubChatApi.FriendshipEntry(
+                accountUid = accountUid,
+                displayName = persona?.optString("display_name")?.takeIf { it.isNotBlank() }
+                    ?: persona?.optString("handle")?.takeIf { it.isNotBlank() }
+                    ?: "Участник PubChat",
+                handle = persona?.optString("handle")?.takeIf { it.isNotBlank() },
+                avatar = persona?.optString("avatar")?.takeIf { it.isNotBlank() },
+            ))
+        }
+    }
+    return PubChatApi.FriendshipPage(rows, root.optJSONObject("pagination")?.optInt("total", rows.size) ?: rows.size)
 }

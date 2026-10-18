@@ -256,6 +256,18 @@ class AppController(context: Context) {
         }
     }
 
+    fun loadFriendships(
+        tab: String,
+        offset: Int = 0,
+        onResult: (PubChatApi.FriendshipPage?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching { authenticated { api.friendshipPage(tab, offset) } }
+                .onSuccess { page -> main.post { onResult(page, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
     fun loadRelationship(
         accountUid: String,
         onResult: (PubChatApi.SocialRelationship?, String?) -> Unit,
