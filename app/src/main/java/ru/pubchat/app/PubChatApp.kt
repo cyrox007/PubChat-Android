@@ -755,9 +755,9 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             }
             TextButton(onClick = onCancelReply, enabled = !sending) { Text("Отмена") }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             IconButton(onClick = { picker.launch("*/*") }, enabled = connection == "connected" && reply == null && !sending, modifier = Modifier.size(40.dp).semantics { contentDescription = "Прикрепить файл" }) { Text("＋", fontSize = 23.sp) }
-            Box(Modifier.weight(1f)) { Composer(draft, onDraft, connection == "connected" && !sending, onSend) }
+            Box(Modifier.weight(1f)) { Composer(draft, onDraft, connection == "connected" && !sending, onSend, padded = false) }
         }
     }
 }
@@ -847,8 +847,8 @@ private fun MessageCard(message: PubChatApi.ChatMessage, own: Boolean, onClick: 
 }
 
 @Composable
-private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean, onSend: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp),
+private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean, onSend: () -> Unit, padded: Boolean = true) {
+    Row(Modifier.fillMaxWidth().then(if (padded) Modifier.padding(horizontal = 8.dp, vertical = 5.dp) else Modifier),
         verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         BasicTextField(
             value = draft,

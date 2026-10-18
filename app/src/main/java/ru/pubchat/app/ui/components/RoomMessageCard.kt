@@ -60,7 +60,7 @@ internal fun RoomMessageCard(
             Column(Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val avatar = publicMediaUrl(message.senderAvatar)
-                    if (!own) Box(Modifier.size(22.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(22.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
                         Text(message.senderName?.take(1)?.uppercase() ?: "?", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                         if (avatar != null) AsyncImage(avatar, "Аватар автора", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
@@ -100,10 +100,10 @@ private fun MessageAttachment(attachment: PubChatApi.Attachment, contentType: St
     if (url == null) { Text("Вложение недоступно"); return }
     val image = attachment.mimeType?.startsWith("image/") == true || contentType == "image"
     val audio = attachment.mimeType?.startsWith("audio/") == true || contentType in setOf("audio", "voice")
-    if (image) SubcomposeAsyncImage(url, attachment.name, Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 220.dp).clip(RoundedCornerShape(10.dp))
+    if (image) SubcomposeAsyncImage(url, attachment.name, Modifier.fillMaxWidth().heightIn(min = 64.dp, max = 180.dp).clip(RoundedCornerShape(10.dp))
         .clickable { runCatching { uriHandler.openUri(url) }.onFailure { openError = true } }, contentScale = ContentScale.Fit,
         loading = { Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } },
-        error = { Box(Modifier.fillMaxWidth().height(100.dp).background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) { Text("Изображение недоступно · Открыть", style = MaterialTheme.typography.bodySmall) } })
+        error = { Box(Modifier.fillMaxWidth().height(64.dp).background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) { Text("Изображение недоступно · Открыть", style = MaterialTheme.typography.bodySmall) } })
     else if (audio) AudioMessage(url)
     else TextButton(onClick = { runCatching { uriHandler.openUri(url) }.onFailure { openError = true } }) {
         Text(if (contentType == "video") "▶ ${attachment.name}" else "📎 ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
