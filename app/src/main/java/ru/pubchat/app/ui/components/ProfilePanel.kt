@@ -26,6 +26,7 @@ internal fun ProfilePanel(state: AppState.SignedIn, controller: AppController, o
     val theme = LocalThemeControl.current
     var editing by remember { mutableStateOf(false) }
     var managingPersonas by remember { mutableStateOf(false) }
+    var managingDMConsent by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
