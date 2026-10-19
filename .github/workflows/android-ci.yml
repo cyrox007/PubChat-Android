@@ -105,7 +105,7 @@ jobs:
       # The .ci package does NOT replace either ru.pubchat.app or
       # ru.pubchat.app.debug. It is signed with an ephemeral runner key.
       - name: Build isolated disposable CI APK
-        if: matrix.firebase == 'disabled' && github.event_name == 'push'
+        if: matrix.firebase == 'disabled'
         run: ./gradlew :app:assembleCi --stacktrace
       - name: Publish isolated first-install CI APK
         if: matrix.firebase == 'disabled' && github.event_name == 'push'
