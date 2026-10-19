@@ -75,7 +75,7 @@ fun SpaceInvitationsDialog(
         notice = null
         // Prevent any earlier inbox page from overwriting a server-confirmed action.
         generation++
-        controller.respondSpaceInvitation(invitation.uid, action) { result, failure ->
+        controller.respondSpaceInvitation(invitation.uid, invitation.spaceUid, action) { result, failure ->
             busyUid = null
             if (result != null) {
                 if (result.status == "accepted" && result.space != null) {
