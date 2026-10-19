@@ -79,10 +79,10 @@ class MessengerRealtimeClient(
                 .put("request_id", requestId)
         )
 
-    fun sendMessage(peerUid: String, content: String): Boolean = send(
+    fun sendMessage(peerUid: String, content: String, frontId: String): Boolean = send(
         JSONObject()
             .put("action", "send_message")
-            .put("frontId", java.util.UUID.randomUUID().toString())
+            .put("frontId", frontId)
             .put("receiver_uid", peerUid)
             .put("content", content.trim())
             .put("content_type", "text")
