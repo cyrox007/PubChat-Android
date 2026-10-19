@@ -45,6 +45,9 @@ internal fun ProfilePanel(state: AppState.SignedIn, controller: AppController, o
                 OutlinedButton(onClick = { managingPersonas = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Мои Persona")
                 }
+                OutlinedButton(onClick = { managingDMConsent = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Кто может писать мне")
+                }
             }
         }
         Text("О себе", style = MaterialTheme.typography.titleSmall)
