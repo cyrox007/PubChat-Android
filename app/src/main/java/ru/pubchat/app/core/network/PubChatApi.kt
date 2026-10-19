@@ -190,7 +190,7 @@ class PubChatApi(
         parseDMConsentResponse(request("GET", "/identity/v2/me").body)
 
     fun updateDMConsent(policy: DMConsentPolicy): DMConsentSnapshot {
-        val payload = JSONObject().put("dm_policy", policy.code)
+        val payload = dmConsentPayload(policy)
         val result = parseDMConsentResponse(request("PATCH", "/identity/v2/privacy", payload).body)
         check(result.policy == policy) { "Сервер не подтвердил изменение приватности" }
         return result
@@ -784,3 +784,7 @@ internal fun parseDMConsentResponse(body: String): PubChatApi.DMConsentSnapshot 
         policy = policy,
     )
 }
+
+/** The PATCH is partial: all other privacy fields remain unchanged. */
+internal fun dmConsentPayload(policy: PubChatApi.DMConsentPolicy): JSONObject =
+    JSONObject().put("dm_policy", policy.code)
