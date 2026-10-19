@@ -87,6 +87,7 @@ import ru.pubchat.app.ui.components.FriendshipHubContent
 import ru.pubchat.app.ui.components.PubChatEmptyState
 import ru.pubchat.app.ui.components.PubChatListSkeleton
 import ru.pubchat.app.ui.components.RoomMessageCard
+import ru.pubchat.app.ui.components.CreateSpaceDialog
 import ru.pubchat.app.ui.theme.pubChatBackdrop
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -1061,6 +1062,7 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
     var categoryError by remember { mutableStateOf<String?>(null) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var categoryMenuOpen by remember { mutableStateOf(false) }
+    var createSpaceOpen by remember { mutableStateOf(false) }
     var filteredSpaces by remember { mutableStateOf<List<PubChatApi.SpaceSummary>?>(null) }
     var filterBusy by remember { mutableStateOf(false) }
     var filterError by remember { mutableStateOf<String?>(null) }
@@ -1110,6 +1112,11 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("В каталоге: ${visibleSpaces.size}", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary)
+                        Button(
+                            onClick = { createSpaceOpen = true },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            enabled = !visibleLoading,
+                        ) { Text("＋ Создать пространство") }
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1266,6 +1273,23 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                 }
             }
         }
+    }
+    if (createSpaceOpen) {
+        CreateSpaceDialog(
+            categories = categories,
+            categoryError = categoryError,
+            onRetryCategories = ::fetchCategories,
+            onCreate = controller::createSpace,
+            onCreated = { created ->
+                createSpaceOpen = false
+                selectedCategory = null
+                filteredSpaces = null
+                filterError = null
+                controller.reload(state, onState)
+                onOpen(created)
+            },
+            onDismiss = { createSpaceOpen = false },
+        )
     }
 }
 
