@@ -98,7 +98,7 @@ internal fun parseSpaceInvitationDecision(
 }
 
 internal fun invitationErrorMessage(error: Throwable): String = when (error) {
-    is PubChatApi.ApiFailure -> when (error.detail) {
+    is PubChatApi.ApiFailure -> when (error.message) {
         "space_invitation_not_active" -> "Приглашение уже истекло или отозвано. Обновите список."
         "space_invitation_not_found" -> "Приглашение больше недоступно. Обновите список."
         "social_relationship_blocked" -> "Приглашение недоступно из-за блокировки."
