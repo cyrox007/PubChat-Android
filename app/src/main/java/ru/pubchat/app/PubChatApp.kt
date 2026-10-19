@@ -925,8 +925,42 @@ private fun NavButton(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun SpacesContent(state: AppState.SignedIn, controller: AppController, onState: (AppState) -> Unit, onOpen: (PubChatApi.SpaceSummary) -> Unit) {
+    var categories by remember { mutableStateOf<List<PubChatApi.SpaceCategory>>(emptyList()) }
+    var categoryError by remember { mutableStateOf<String?>(null) }
+    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var categoryMenuOpen by remember { mutableStateOf(false) }
+    var filteredSpaces by remember { mutableStateOf<List<PubChatApi.SpaceSummary>?>(null) }
+    var filterBusy by remember { mutableStateOf(false) }
+    var filterError by remember { mutableStateOf<String?>(null) }
+
+    fun fetchCategories() {
+        controller.loadSpaceCategories { loaded, error ->
+            if (error == null) categories = loaded
+            categoryError = error
+        }
+    }
+    fun fetchFiltered(slug: String) {
+        filterBusy = true
+        filterError = null
+        filteredSpaces = emptyList()
+        controller.loadSpacesForCategory(slug) { result, error ->
+            if (selectedCategory == slug) {
+                filterBusy = false
+                if (result != null) filteredSpaces = result else filterError = error ?: "Не удалось загрузить категорию"
+            }
+        }
+    }
+    fun refreshCatalog() {
+        if (selectedCategory != null) fetchFiltered(selectedCategory!!)
+        else controller.reload(state, onState)
+    }
+    LaunchedEffect(Unit) { fetchCategories() }
+    val visibleSpaces = if (selectedCategory == null) state.spaces else filteredSpaces.orEmpty()
+    val visibleError = if (selectedCategory == null) state.error else filterError
+    val visibleLoading = if (selectedCategory == null) state.loading else filterBusy
+
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        if (state.loading && state.spaces.isEmpty()) {
+        if (visibleLoading && visibleSpaces.isEmpty()) {
             Column(Modifier.padding(16.dp)) {
                 Text("Открывай своё", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text("Пространства по интересам", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -942,43 +976,106 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                         Text("Открывай своё", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                         Text("Найди пространство для общения и новых идей",
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("В каталоге: ${state.spaces.size}", style = MaterialTheme.typography.labelMedium,
+                        Text("В каталоге: ${visibleSpaces.size}", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary)
-                        if (state.loading) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box {
+                                OutlinedButton(
+                                    onClick = { categoryMenuOpen = true },
+                                    enabled = !visibleLoading && categories.isNotEmpty(),
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                ) {
+                                    Text(categories.find { it.slug == selectedCategory }?.name ?: "Все категории",
+                                        maxLines = 1)
+                                }
+                                androidx.compose.material3.DropdownMenu(
+                                    expanded = categoryMenuOpen,
+                                    onDismissRequest = { categoryMenuOpen = false },
+                                ) {
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text("Все категории") },
+                                        onClick = {
+                                            categoryMenuOpen = false
+                                            selectedCategory = null
+                                            filteredSpaces = null
+                                            filterError = null
+                                            controller.reload(state, onState)
+                                        },
+                                    )
+                                    categories.forEach { item ->
+                                        androidx.compose.material3.DropdownMenuItem(
+                                            text = { Text(item.name) },
+                                            onClick = {
+                                                categoryMenuOpen = false
+                                                if (selectedCategory != item.slug) {
+                                                    selectedCategory = item.slug
+                                                    fetchFiltered(item.slug)
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            if (selectedCategory != null) {
+                                TextButton(onClick = {
+                                    selectedCategory = null
+                                    filteredSpaces = null
+                                    filterError = null
+                                    controller.reload(state, onState)
+                                }) { Text("Сбросить") }
+                            }
+                        }
+                        categoryError?.let {
+                            Text("Категории недоступны: $it", color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { fetchCategories() }) { Text("Повторить категории") }
+                        }
+                        if (visibleLoading) {
                             androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
                         }
                     }
                 }
-                if (!state.error.isNullOrBlank()) item {
+                if (!visibleError.isNullOrBlank()) item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                         shape = RoundedCornerShape(16.dp),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(if (state.spaces.isEmpty()) "Каталог недоступен" else "Не удалось обновить пространства",
+                            Text(if (visibleSpaces.isEmpty()) "Каталог недоступен" else "Не удалось обновить пространства",
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 fontWeight = FontWeight.SemiBold)
-                            Text(state.error, color = MaterialTheme.colorScheme.onErrorContainer)
-                            if (state.spaces.isNotEmpty()) {
+                            Text(visibleError, color = MaterialTheme.colorScheme.onErrorContainer)
+                            if (visibleSpaces.isNotEmpty()) {
                                 Text("Показаны ранее загруженные пространства.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onErrorContainer)
                             }
-                            OutlinedButton(onClick = { controller.reload(state, onState) }, enabled = !state.loading) {
+                            OutlinedButton(onClick = { refreshCatalog() }, enabled = !visibleLoading) {
                                 Text("Повторить")
                             }
                         }
                     }
                 }
-                if (state.spaces.isEmpty() && !state.loading && state.error.isNullOrBlank()) item {
+                if (visibleSpaces.isEmpty() && !visibleLoading && visibleError.isNullOrBlank()) item {
                     PubChatEmptyState(
-                        title = "Пока нет пространств",
-                        explanation = "Здесь появятся сообщества по вашим интересам.",
-                        actionLabel = "Обновить",
-                        onAction = { controller.reload(state, onState) },
+                        title = if (selectedCategory != null) "В категории пока нет пространств" else "Пока нет пространств",
+                        explanation = if (selectedCategory != null) "Выберите другую категорию или сбросьте фильтр."
+                            else "Здесь появятся сообщества по вашим интересам.",
+                        actionLabel = if (selectedCategory != null) "Все категории" else "Обновить",
+                        onAction = {
+                            if (selectedCategory != null) {
+                                selectedCategory = null
+                                filteredSpaces = null
+                                controller.reload(state, onState)
+                            } else refreshCatalog()
+                        },
                     )
                 }
-                items(state.spaces, key = PubChatApi.SpaceSummary::uid) { space ->
+                items(visibleSpaces, key = PubChatApi.SpaceSummary::uid) { space ->
                     Card(
                         Modifier.fillMaxWidth().clickable(onClickLabel = "Открыть пространство ${space.name}") { onOpen(space) },
                         shape = RoundedCornerShape(22.dp),
@@ -1009,6 +1106,13 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                                     Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium)
                                 }
+                                if (space.categorySlugs.isNotEmpty()) {
+                                    Text(space.categorySlugs.joinToString(" · ") { slug ->
+                                        categories.find { it.slug == slug }?.name ?: slug
+                                    }, style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 2)
+                                }
                                 space.description?.takeIf { it.isNotBlank() }?.let {
                                     Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 3, style = MaterialTheme.typography.bodyMedium)
@@ -1022,9 +1126,9 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                     }
                 }
                 item {
-                    OutlinedButton(onClick = { controller.reload(state, onState) },
-                        modifier = Modifier.fillMaxWidth(), enabled = !state.loading) {
-                        Text(if (state.loading) "Обновляем…" else "Обновить каталог")
+                    OutlinedButton(onClick = { refreshCatalog() },
+                        modifier = Modifier.fillMaxWidth(), enabled = !visibleLoading) {
+                        Text(if (visibleLoading) "Обновляем…" else "Обновить каталог")
                     }
                 }
             }

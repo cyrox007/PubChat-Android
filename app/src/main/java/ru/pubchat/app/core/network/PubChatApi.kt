@@ -44,10 +44,13 @@ class PubChatApi(
         val canManage: Boolean = false,
         val memberCount: Int = 0,
         val memberLimit: Int = 250,
+        val categorySlugs: List<String> = emptyList(),
     ) {
         val isActiveMember: Boolean
             get() = membershipStatus == "active" || membershipRole == "owner"
     }
+
+    data class SpaceCategory(val slug: String, val name: String, val icon: String)
 
     data class PersonSummary(
         val accountUid: String,
@@ -167,9 +170,26 @@ class PubChatApi(
         return me()
     }
 
-    fun spaces(): List<SpaceSummary> = parseSpaces(
-        JSONObject(request("GET", "/spaces/v1?limit=50").body).optJSONArray("spaces") ?: JSONArray()
-    )
+    fun spaces(category: String? = null): List<SpaceSummary> {
+        require(category == null || Regex("^[a-z][a-z0-9-]{0,39}$").matches(category)) {
+            "Недопустимая категория пространства"
+        }
+        val route = "/spaces/v1?limit=50" + (category?.let { "&category=$it" } ?: "")
+        return parseSpaces(JSONObject(request("GET", route).body).optJSONArray("spaces") ?: JSONArray())
+    }
+
+    fun spaceCategories(): List<SpaceCategory> {
+        val items = JSONObject(request("GET", "/spaces/v1/categories").body)
+            .optJSONArray("categories") ?: JSONArray()
+        return buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val slug = item.optString("slug")
+                if (!Regex("^[a-z][a-z0-9-]{0,39}$").matches(slug)) continue
+                add(SpaceCategory(slug, item.optString("name"), item.optString("icon", "tag")))
+            }
+        }
+    }
 
     fun space(uid: String): SpaceSummary {
         val json = JSONObject(request("GET", "/spaces/v1/$uid").body).getJSONObject("space")
@@ -540,7 +560,7 @@ class PubChatApi(
         }
     }
 
-    private fun parseSpace(space: JSONObject): SpaceSummary {
+    internal fun parseSpace(space: JSONObject): SpaceSummary {
         val membership = space.optJSONObject("viewer_membership")
         return SpaceSummary(
             uid = space.optString("uid"),
@@ -554,6 +574,11 @@ class PubChatApi(
             canManage = space.optBoolean("can_manage", false),
             memberCount = space.optInt("member_count", 0),
             memberLimit = space.optInt("member_limit", 250),
+            categorySlugs = space.optJSONArray("category_slugs")?.let { values ->
+                buildList { for (index in 0 until values.length()) {
+                    values.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+                } }
+            } ?: emptyList(),
         )
     }
 
