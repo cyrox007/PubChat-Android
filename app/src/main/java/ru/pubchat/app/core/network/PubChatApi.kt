@@ -234,10 +234,10 @@ class PubChatApi(
         return parseSpaceInvitationPage(body, limit, offset)
     }
 
-    fun respondSpaceInvitation(uid: String, action: String): SpaceInvitationDecision {
+    fun respondSpaceInvitation(uid: String, expectedSpaceUid: String, action: String): SpaceInvitationDecision {
         require(java.util.UUID.fromString(uid).toString() == uid.lowercase()) { "Некорректное приглашение" }
         val body = request("PATCH", "/spaces/v1/invitations/$uid", invitationActionPayload(action)).body
-        return parseSpaceInvitationDecision(body, uid, action, ::parseSpace)
+        return parseSpaceInvitationDecision(body, uid, action, expectedSpaceUid, ::parseSpace)
     }
 
     fun spaceCategories(): List<SpaceCategory> {
