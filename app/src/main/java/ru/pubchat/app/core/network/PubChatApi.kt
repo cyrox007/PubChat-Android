@@ -560,7 +560,7 @@ class PubChatApi(
         }
     }
 
-    private fun parseSpace(space: JSONObject): SpaceSummary {
+    internal fun parseSpace(space: JSONObject): SpaceSummary {
         val membership = space.optJSONObject("viewer_membership")
         return SpaceSummary(
             uid = space.optString("uid"),
