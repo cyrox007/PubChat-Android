@@ -102,15 +102,17 @@ jobs:
         run: ./gradlew lintDebug --stacktrace
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
-      # This debug APK is signed by a throwaway runner key, NOT the permanent
-      # device-QA identity. It can be installed fresh / side by side with the
-      # release application but will not reliably upgrade an older debug APK.
-      - name: Publish disposable debug APK for first-install tests
+      # The .ci package does NOT replace either ru.pubchat.app or
+      # ru.pubchat.app.debug. It is signed with an ephemeral runner key.
+      - name: Build isolated disposable CI APK
+        if: matrix.firebase == 'disabled' && github.event_name == 'push'
+        run: ./gradlew :app:assembleCi --stacktrace
+      - name: Publish isolated first-install CI APK
         if: matrix.firebase == 'disabled' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: pubchat-debug-FIRST-INSTALL-ONLY
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: pubchat-ci-FIRST-INSTALL-ONLY
+          path: app/build/outputs/apk/ci/app-ci.apk
           if-no-files-found: error
           retention-days: 14
 
