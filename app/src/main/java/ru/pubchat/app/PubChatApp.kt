@@ -938,6 +938,8 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                         Text("Открывай своё", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                         Text("Найди пространство для общения и новых идей",
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("В каталоге: ${state.spaces.size}", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary)
                         if (state.loading) {
                             androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
                         }
@@ -949,26 +951,32 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                         shape = RoundedCornerShape(16.dp),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Не удалось обновить пространства", color = MaterialTheme.colorScheme.onErrorContainer,
+                            Text(if (state.spaces.isEmpty()) "Каталог недоступен" else "Не удалось обновить пространства",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
                                 fontWeight = FontWeight.SemiBold)
                             Text(state.error, color = MaterialTheme.colorScheme.onErrorContainer)
-                            OutlinedButton(onClick = { controller.reload(state, onState) }) { Text("Повторить") }
+                            if (state.spaces.isNotEmpty()) {
+                                Text("Показаны ранее загруженные пространства.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer)
+                            }
+                            OutlinedButton(onClick = { controller.reload(state, onState) }, enabled = !state.loading) {
+                                Text("Повторить")
+                            }
                         }
                     }
                 }
-                if (state.spaces.isEmpty() && !state.loading) item {
+                if (state.spaces.isEmpty() && !state.loading && state.error.isNullOrBlank()) item {
                     PubChatEmptyState(
-                        title = if (state.error.isNullOrBlank()) "Пока нет пространств" else "Каталог недоступен",
-                        explanation = if (state.error.isNullOrBlank())
-                            "Здесь появятся сообщества по вашим интересам."
-                        else "Проверьте соединение и повторите попытку.",
+                        title = "Пока нет пространств",
+                        explanation = "Здесь появятся сообщества по вашим интересам.",
                         actionLabel = "Обновить",
                         onAction = { controller.reload(state, onState) },
                     )
                 }
                 items(state.spaces, key = PubChatApi.SpaceSummary::uid) { space ->
                     Card(
-                        Modifier.fillMaxWidth().clickable { onOpen(space) },
+                        Modifier.fillMaxWidth().clickable(onClickLabel = "Открыть пространство ${space.name}") { onOpen(space) },
                         shape = RoundedCornerShape(22.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -983,15 +991,27 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                                     ))
                                 ),
                                 contentAlignment = Alignment.Center,
-                            ) { Text("P", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold, fontSize = 27.sp) }
+                            ) {
+                                Icon(painterResource(R.drawable.ic_spaces), contentDescription = null,
+                                    tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(28.dp))
+                            }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Text(space.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                space.purpose?.let { Text(it, color = MaterialTheme.colorScheme.primary,
-                                    style = MaterialTheme.typography.labelMedium) }
-                                space.description?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 3, style = MaterialTheme.typography.bodyMedium) }
-                                Text(if (space.isActiveMember) "Открыть разговор →" else "Вступить и открыть →",
-                                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold,
+                                Text(space.name, style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold)
+                                Text(if (space.isActiveMember) "Вы участник" else "Не участник",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelMedium)
+                                space.purpose?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelMedium)
+                                }
+                                space.description?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 3, style = MaterialTheme.typography.bodyMedium)
+                                }
+                                Text(if (space.isActiveMember) "Открыть разговор →" else "Перейти к пространству →",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold,
                                     style = MaterialTheme.typography.labelMedium)
                             }
                         }
