@@ -80,6 +80,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.realtime.PendingMessengerSend
 import ru.pubchat.app.ui.components.SocialAvailabilityControls
 import ru.pubchat.app.ui.components.FriendshipHubContent
 import ru.pubchat.app.ui.components.PubChatEmptyState
@@ -268,6 +269,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var conversations by remember { mutableStateOf<Map<String, List<PubChatApi.ChatMessage>>>(emptyMap()) }
     var onlineStatuses by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var dmDraft by remember { mutableStateOf("") }
+    var dmPending by remember { mutableStateOf<PendingMessengerSend?>(null) }
     var selectedMessageUid by remember { mutableStateOf<String?>(null) }
     var actionMode by remember { mutableStateOf<String?>(null) }
     var actionDraft by remember { mutableStateOf("") }
@@ -484,8 +486,31 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                 conversations = conversations.mapValues { (_, list) -> list.map { if (it.uid == messageUid) it.copy(isRead = true) else it } }
             },
             onStatuses = { onlineStatuses = onlineStatuses + it },
-            onConnection = { messengerConnection = it },
-            onError = { messengerError = it },
+            onConnection = { status ->
+                messengerConnection = status
+                if (dmPending != null && status in setOf("connecting", "reconnecting", "disconnected", "restricted")) {
+                    dmPending = null
+                    messengerError = "Нет подтверждения отправки. Проверьте историю, прежде чем отправлять ещё раз."
+                }
+            },
+            onError = { message ->
+                messengerError = message
+                if (dmPending != null) dmPending = null
+            },
+            onSendConfirmed = { frontId, peerUid ->
+                val pending = dmPending
+                if (pending != null && pending.matchesEcho(frontId, peerUid)) {
+                    if (pending.shouldClearDraft(dmDraft)) dmDraft = ""
+                    dmPending = null
+                    messengerError = null
+                }
+            },
+            onSendFailed = { frontId, reason ->
+                if (dmPending?.frontId == frontId) {
+                    dmPending = null
+                    messengerError = reason
+                }
+            },
         )
     }
 
@@ -866,6 +891,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     currentAccountUid = state.accountUid,
                     connection = messengerConnection,
                     error = messengerError,
+                    sending = dmPending != null,
                     draft = dmDraft,
                     onDraft = { dmDraft = it },
                     selectedUid = selectedMessageUid,
@@ -876,7 +902,20 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onActionDraft = { actionDraft = it },
                     onSend = {
                         val peer = activeDialog?.partnerUid
-                        if (peer != null && controller.sendPrivateMessage(peer, dmDraft)) dmDraft = "" else messengerError = "Личные сообщения ещё переподключаются"
+                        val text = dmDraft.trim()
+                        if (peer != null && dmPending == null && text.isNotEmpty()) {
+                            if (text.length > 1000) {
+                                messengerError = "Сообщение не должно превышать 1000 символов"
+                            } else {
+                                val pending = PendingMessengerSend(java.util.UUID.randomUUID().toString(), peer, text)
+                                dmPending = pending
+                                messengerError = null
+                                if (!controller.sendPrivateMessage(peer, text, pending.frontId)) {
+                                    dmPending = null
+                                    messengerError = "Соединение не готово. Черновик сохранён."
+                                }
+                            }
+                        }
                     },
                     onAction = { action ->
                         val uid = selectedMessageUid ?: return@MessengerChatContent
@@ -1313,6 +1352,7 @@ private fun MessengerChatContent(
     currentAccountUid: String,
     connection: String,
     error: String?,
+    sending: Boolean,
     draft: String,
     onDraft: (String) -> Unit,
     selectedUid: String?,
@@ -1354,7 +1394,13 @@ private fun MessengerChatContent(
                 }
             }
         }
-        Composer(draft, onDraft, connection == "connected", onSend)
+        Composer(draft, onDraft, connection == "connected" && !sending, onSend)
+        if (sending) {
+            Text("Ожидаем подтверждения сервера. Повторная отправка заблокирована.",
+                Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
