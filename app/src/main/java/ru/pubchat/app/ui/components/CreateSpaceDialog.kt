@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -117,7 +119,7 @@ internal fun CreateSpaceDialog(
                             onClick = { purpose = code },
                             label = { Text(label) },
                             enabled = !busy,
-                            modifier = Modifier.heightIn(min = 44.dp).padding(end = 6.dp),
+                            modifier = Modifier.heightIn(min = 48.dp).padding(end = 6.dp),
                         )
                     }
                 }
@@ -133,7 +135,7 @@ internal fun CreateSpaceDialog(
                                 if (code == "private") joinPolicy = "invite"
                             },
                             label = { Text(label) }, enabled = !busy,
-                            modifier = Modifier.heightIn(min = 44.dp).padding(end = 6.dp),
+                            modifier = Modifier.heightIn(min = 48.dp).padding(end = 6.dp),
                         )
                     }
                 }
@@ -146,7 +148,7 @@ internal fun CreateSpaceDialog(
                             onClick = { joinPolicy = code },
                             label = { Text(label) },
                             enabled = !busy && (visibility != "private" || code == "invite"),
-                            modifier = Modifier.heightIn(min = 44.dp).padding(end = 6.dp),
+                            modifier = Modifier.heightIn(min = 48.dp).padding(end = 6.dp),
                         )
                     }
                 }
@@ -183,7 +185,7 @@ internal fun CreateSpaceDialog(
                                 label = { Text(category.name) },
                                 enabled = !busy && (category.slug in selectedCategories ||
                                     selectedCategories.size < 3),
-                                modifier = Modifier.heightIn(min = 44.dp).padding(end = 6.dp),
+                                modifier = Modifier.heightIn(min = 48.dp).padding(end = 6.dp),
                             )
                         }
                     }
@@ -223,7 +225,7 @@ internal fun CreateSpaceDialog(
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss, enabled = !busy) { Text("Отмена") }
-                    Spacer(Modifier.padding(horizontal = 4.dp))
+                    Spacer(Modifier.width(8.dp))
                     Button(
                         enabled = !busy && validationError == null,
                         onClick = {
@@ -238,7 +240,7 @@ internal fun CreateSpaceDialog(
                         },
                     ) {
                         if (busy) CircularProgressIndicator(
-                            modifier = Modifier.height(17.dp).padding(end = 6.dp),
+                            modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
                         )
                         Text(if (busy) "Создаём…" else "Создать")
