@@ -87,6 +87,10 @@ import ru.pubchat.app.ui.components.FriendshipHubContent
 import ru.pubchat.app.ui.components.PubChatEmptyState
 import ru.pubchat.app.ui.components.PubChatListSkeleton
 import ru.pubchat.app.ui.components.RoomMessageCard
+import ru.pubchat.app.ui.theme.pubChatBackdrop
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import ru.pubchat.app.ui.components.RoomControlPanel
 
 enum class AppSection { SPACES, PEOPLE, FRIENDSHIPS, MESSENGER, PROFILE, PERSON, SPACE, MESSENGER_CHAT, NOTIFICATIONS }
@@ -855,8 +859,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-            when (section) {
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).pubChatBackdrop()) {
+            Crossfade(targetState = section, animationSpec = tween(180), label = "Разделы PubChat") { visibleSection ->
+              when (visibleSection) {
                 AppSection.SPACES -> SpacesContent(state, controller, onState, ::openSpace)
                 AppSection.PEOPLE -> PeopleContent(
                     people, peopleLoading, peopleError, search, { search = it },
@@ -1039,6 +1044,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         }
                     },
                 )
+              }
             }
         }
     }
@@ -1085,7 +1091,7 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
     val visibleError = if (selectedCategory == null) state.error else filterError
     val visibleLoading = if (selectedCategory == null) state.loading else filterBusy
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Column(Modifier.fillMaxSize()) {
         if (visibleLoading && visibleSpaces.isEmpty()) {
             Column(Modifier.padding(16.dp)) {
                 Text("Открывай своё", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -1206,7 +1212,8 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                         Modifier.fillMaxWidth().clickable(onClickLabel = "Открыть пространство ${space.name}") { onOpen(space) },
                         shape = RoundedCornerShape(22.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp, pressedElevation = 2.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f)),
                     ) {
                         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp),
                             verticalAlignment = Alignment.Top) {
@@ -1348,7 +1355,7 @@ private fun PeopleContent(
 
 @Composable
 private fun MessengerListContent(dialogs: List<PubChatApi.DialogSummary>, loading: Boolean, error: String?, online: Map<String, Boolean>, onOpen: (PubChatApi.DialogSummary) -> Unit, onReload: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Column(Modifier.fillMaxSize()) {
         if (loading && dialogs.isNotEmpty()) {
             androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
         }
@@ -1377,7 +1384,13 @@ private fun MessengerListContent(dialogs: List<PubChatApi.DialogSummary>, loadin
                 )
             }
             items(dialogs, key = PubChatApi.DialogSummary::partnerUid) { dialog ->
-                Card(Modifier.fillMaxWidth().clickable { onOpen(dialog) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Card(
+                    Modifier.fillMaxWidth().clickable { onOpen(dialog) },
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp, pressedElevation = 1.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f)),
+                ) {
                     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ru.pubchat.app.ui.components.UserAvatar(dialog.displayName, dialog.avatar)
                         Column(Modifier.weight(1f)) {
