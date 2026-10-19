@@ -1,6 +1,6 @@
 # PubChat — Android на реальном устройстве
 
-Документ относится к тестовым APK из ветки \`master\`. Код проверяется CI, но это **не** подтверждение работы на конкретном телефоне.
+Документ относится к тестовым APK из ветки `master`. Код проверяется CI, но это **не** подтверждение работы на конкретном телефоне.
 
 ## 1. Сначала проверьте установленную версию (ничего не удаляя)
 
@@ -8,20 +8,20 @@
 
 **Windows / PowerShell:**
 
-\`\`\`powershell
+```powershell
 adb devices
 adb shell pm list packages | Select-String "ru.pubchat.app"
 adb shell dumpsys package ru.pubchat.app | Select-String "versionCode|versionName"
 adb shell dumpsys package ru.pubchat.app.debug | Select-String "versionCode|versionName"
-\`\`\`
+```
 
 Android различает:
-- \`ru.pubchat.app\` — release/основное приложение;
-- \`ru.pubchat.app.debug\` — debug/QA-приложение.
+- `ru.pubchat.app` — release/основное приложение;
+- `ru.pubchat.app.debug` — debug/QA-приложение.
 
-Установка \`.debug\` **не обновляет** \`ru.pubchat.app\`; это отдельное приложение с отдельными сессиями, локальными данными и Android Keystore. Не удаляйте старое, пока данные и доступ не проверены.
+Установка `.debug` **не обновляет** `ru.pubchat.app`; это отдельное приложение с отдельными сессиями, локальными данными и Android Keystore. Не удаляйте старое, пока данные и доступ не проверены.
 
-**Важно:** одинаковый package name сам по себе не гарантирует обновление. Android также требует **совпадения сертификата подписи** и неубывающего \`versionCode\`. При несовпадении сертификата установка поверх приложения завершится \`INSTALL_FAILED_UPDATE_INCOMPATIBLE\`. Не пытайтесь исправлять это удалением приложения без осознанного согласия на потерю локальных данных/сессии.
+**Важно:** одинаковый package name сам по себе не гарантирует обновление. Android также требует **совпадения сертификата подписи** и неубывающего `versionCode`. При несовпадении сертификата установка поверх приложения завершится `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Не пытайтесь исправлять это удалением приложения без осознанного согласия на потерю локальных данных/сессии.
 
 ## 2. Как получить тестовую APK
 
@@ -29,45 +29,45 @@ Android различает:
 
 ### Disposable, только первая установка
 
-Артефакт \`pubchat-debug-FIRST-INSTALL-ONLY\` создаётся job \`android (disabled)\`: APK внутри ZIP имеет имя \`app-debug.apk\`.
+Артефакт `pubchat-debug-FIRST-INSTALL-ONLY` создаётся job `android (disabled)`: APK внутри ZIP имеет имя `app-debug.apk`.
 
-- Устанавливается как \`ru.pubchat.app.debug\`, в дополнение к \`ru.pubchat.app\`.
+- Устанавливается как `ru.pubchat.app.debug`, в дополнение к `ru.pubchat.app`.
 - Подписан временным debug-ключом GitHub runner. После следующего запуска CI сертификат может измениться.
 - **Не использовать как обновляемый канал**, не рассчитывать на сохранение данных при смене сборки.
 - Этот вариант **не имеет настроенного Firebase**, значит не подходит для тестов настоящих FCM push/входящих уведомлений.
 
 ### Постоянная подпись и обновления
 
-Артефакт \`pubchat-device-qa-signed\` создаётся только после настройки всех четырёх секретов:
+Артефакт `pubchat-device-qa-signed` создаётся только после настройки всех четырёх секретов:
 
 | GitHub Actions repository secret | Назначение |
 | --- | --- |
-| \`PUBCHAT_QA_KEYSTORE_B64\` | Base64 содержимого одного постоянного Java/Android KeyStore (\`.jks\`) |
-| \`PUBCHAT_QA_STORE_PASSWORD\` | Пароль KeyStore |
-| \`PUBCHAT_QA_KEY_ALIAS\` | Имя ключа внутри KeyStore |
-| \`PUBCHAT_QA_KEY_PASSWORD\` | Пароль ключа |
+| `PUBCHAT_QA_KEYSTORE_B64` | Base64 содержимого одного постоянного Java/Android KeyStore (`.jks`) |
+| `PUBCHAT_QA_STORE_PASSWORD` | Пароль KeyStore |
+| `PUBCHAT_QA_KEY_ALIAS` | Имя ключа внутри KeyStore |
+| `PUBCHAT_QA_KEY_PASSWORD` | Пароль ключа |
 
-Откройте **Settings → Secrets and variables → Actions → New repository secret** в \`cyrox007/PubChat-Android\`. Никогда не присылайте ключи или пароли в чат, issue, коммиты, снимки экрана или CI-логи.
+Откройте **Settings → Secrets and variables → Actions → New repository secret** в `cyrox007/PubChat-Android`. Никогда не присылайте ключи или пароли в чат, issue, коммиты, снимки экрана или CI-логи.
 
 Ключ создаётся **один раз** и надёжно резервируется в собственном хранилище владельца проекта. Пример создания на ПК с JDK:
 
-\`\`\`bash
+```bash
 keytool -genkeypair -v -keystore pubchat-qa.jks -alias pubchat-qa -keyalg RSA -keysize 3072 -validity 10000
-\`\`\`
+```
 
 После создания зашифрованного файла:
 
-- macOS/Linux: \`base64 < pubchat-qa.jks | tr -d '\n'\`;
-- Windows PowerShell: \`[Convert]::ToBase64String([IO.File]::ReadAllBytes("pubchat-qa.jks"))\`.
+- macOS/Linux: `base64 < pubchat-qa.jks | tr -d '\n'`;
+- Windows PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("pubchat-qa.jks"))`.
 
-Внесите результат **только** в GitHub Secret \`PUBCHAT_QA_KEYSTORE_B64\`. Остальные три секретных значения должны совпадать с теми, которые вы задали при создании. Храните отдельную защищённую резервную копию \`.jks\`, alias и паролей: без того же сертификата Android не примет следующую APK как обновление.
+Внесите результат **только** в GitHub Secret `PUBCHAT_QA_KEYSTORE_B64`. Остальные три секретных значения должны совпадать с теми, которые вы задали при создании. Храните отдельную защищённую резервную копию `.jks`, alias и паролей: без того же сертификата Android не примет следующую APK как обновление.
 
-После настройки следующий **успешный CI на master** создаст \`pubchat-device-qa-signed\` с:
-- \`app-debug.apk\` — APK для физического Android (\`ru.pubchat.app.debug\`);
-- \`QA_SIGNING_CERT.txt\` — SHA-256 сертификата подписи;
-- \`QA_APK_SHA256.txt\` — SHA-256 самого APK.
+После настройки следующий **успешный CI на master** создаст `pubchat-device-qa-signed` с:
+- `app-debug.apk` — APK для физического Android (`ru.pubchat.app.debug`);
+- `QA_SIGNING_CERT.txt` — SHA-256 сертификата подписи;
+- `QA_APK_SHA256.txt` — SHA-256 самого APK.
 
-Тестовый \`versionCode\` вычисляется как \`100000 + GITHUB_RUN_NUMBER\`. Он растёт на очередных запусках **этого** workflow, но обновление возможно только поверх \`.debug\`, подписанного **тем же** QA-ключом. Прошлые debug-сборки с временными ключами не обновятся поверх новой даже при большем code.
+Тестовый `versionCode` вычисляется как `100000 + GITHUB_RUN_NUMBER`. Он растёт на очередных запусках **этого** workflow, но обновление возможно только поверх `.debug`, подписанного **тем же** QA-ключом. Прошлые debug-сборки с временными ключами не обновятся поверх новой даже при большем code.
 
 Если секретов нет, подписанный артефакт не публикуется. Частично заданная четвёрка секретов завершает QA job ошибкой, чтобы не маскировать проблему.
 
@@ -75,17 +75,17 @@ keytool -genkeypair -v -keystore pubchat-qa.jks -alias pubchat-qa -keyalg RSA -k
 
 Установить APK можно непосредственно из файлового менеджера Android, разрешив установку из этого источника, либо через ADB:
 
-\`\`\`sh
+```sh
 adb install -r app-debug.apk
-\`\`\`
+```
 
-Если ADB сообщает о несовпадении подписи, **не используйте \`adb uninstall\` / \`-d\` / \`-k\` как «быстрое исправление»**. Сначала определите package и сертификат текущей установки.
+Если ADB сообщает о несовпадении подписи, **не используйте `adb uninstall` / `-d` / `-k` как «быстрое исправление»**. Сначала определите package и сертификат текущей установки.
 
 Для проверки сертификата APK на ПК с Android SDK Build Tools:
 
-\`\`\`sh
+```sh
 apksigner verify --print-certs app-debug.apk
-\`\`\`
+```
 
 SHA-256 сертификата должен совпадать с подписью существующей установки **того же package**, если вы рассчитываете на обновление. В настройках обычного Android эта подпись, как правило, не отображается; при необходимости извлеките APK установленного приложения через ADB и сравните отдельно.
 
@@ -102,7 +102,7 @@ SHA-256 сертификата должен совпадать с подпись
 7. Переход Wi-Fi ↔ мобильная сеть, блокировка экрана, возврат после прекращения процесса.
 8. Проверка по утверждённым мобильным макетам PubChat; к каждой ошибке прикладывать скриншот с зафиксированной сборкой.
 
-**FCM-пуши пока не тестируем**: CI-сборки без настоящего \`google-services.json\` не подтверждают доставку push. Сначала нужно безопасно подключить настоящий Firebase-проект и серверные FCM credentials.
+**FCM-пуши пока не тестируем**: CI-сборки без настоящего `google-services.json` не подтверждают доставку push. Сначала нужно безопасно подключить настоящий Firebase-проект и серверные FCM credentials.
 
 ## 5. Как сообщать ошибки
 
