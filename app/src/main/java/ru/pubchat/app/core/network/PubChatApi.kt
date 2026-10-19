@@ -25,6 +25,27 @@ class PubChatApi(
         val country: String? = null,
     )
 
+    enum class DMConsentPolicy(val code: String, val label: String, val description: String) {
+        EVERYONE("everyone", "Все участники",
+            "Написать могут участники платформы с учётом блокировок и серверных ограничений."),
+        SHARED_SPACES("shared_spaces", "Из общих пространств",
+            "Начать разговор могут участники общих пространств, когда сервер разрешает доступ."),
+        MUTUAL("mutual", "Только взаимные контакты",
+            "Право начать разговор зависит от взаимной связи, подтверждённой сервером."),
+        NOBODY("nobody", "Никто", "Запретить новые обращения.");
+
+        companion object {
+            fun fromCode(code: String): DMConsentPolicy? = values().firstOrNull { it.code == code }
+        }
+    }
+
+    data class DMConsentSnapshot(
+        val accountUid: String,
+        val personaUid: String,
+        val primaryPersona: Boolean,
+        val policy: DMConsentPolicy,
+    )
+
     data class PersonaSummary(
         val uid: String, val handle: String,
         val displayName: String, val isPrimary: Boolean,
@@ -163,6 +184,16 @@ class PubChatApi(
     fun me(): Identity {
         val response = request("GET", "/identity/v2/me")
         return parseIdentity(JSONObject(response.body), refreshCookie())
+    }
+
+    fun myDMConsent(): DMConsentSnapshot =
+        parseDMConsentResponse(request("GET", "/identity/v2/me").body)
+
+    fun updateDMConsent(policy: DMConsentPolicy): DMConsentSnapshot {
+        val payload = dmConsentPayload(policy)
+        val result = parseDMConsentResponse(request("PATCH", "/identity/v2/privacy", payload).body)
+        check(result.policy == policy) { "Сервер не подтвердил изменение приватности" }
+        return result
     }
 
     fun updateProfile(name: String, bio: String, city: String, country: String, intent: String): Identity {
@@ -732,3 +763,28 @@ internal fun parseSocialAvailability(value: JSONObject?): PubChatApi.SocialAvail
         expiresAt = expiresAt,
     )
 }
+
+
+/** Strictly read private /me or PATCH /privacy projections; unknown policies
+ * must never silently become 'everyone'. */
+internal fun parseDMConsentResponse(body: String): PubChatApi.DMConsentSnapshot {
+    val root = JSONObject(body)
+    require(root.getString("status") == "ok") { "Сервер не подтвердил настройку приватности" }
+    val accountUid = root.getJSONObject("account").getString("uid")
+    val persona = root.getJSONObject("persona")
+    val personaUid = persona.getString("uid")
+    require(accountUid.isNotBlank() && personaUid.isNotBlank()) { "Отсутствует текущий Account/Persona" }
+    val policyCode = root.getJSONObject("privacy").getString("dm_policy")
+    val policy = PubChatApi.DMConsentPolicy.fromCode(policyCode)
+        ?: error("Неизвестная политика личных сообщений")
+    return PubChatApi.DMConsentSnapshot(
+        accountUid = accountUid,
+        personaUid = personaUid,
+        primaryPersona = persona.getBoolean("is_primary"),
+        policy = policy,
+    )
+}
+
+/** The PATCH is partial: all other privacy fields remain unchanged. */
+internal fun dmConsentPayload(policy: PubChatApi.DMConsentPolicy): JSONObject =
+    JSONObject().put("dm_policy", policy.code)

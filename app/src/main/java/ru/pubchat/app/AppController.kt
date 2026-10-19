@@ -314,6 +314,34 @@ class AppController(context: Context) {
         }
     }
 
+    fun loadDMConsent(onResult: (PubChatApi.DMConsentSnapshot?, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.myDMConsent() } }
+                .onSuccess { value -> main.post { onResult(value, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
+    fun saveDMConsent(
+        expected: PubChatApi.DMConsentSnapshot,
+        policy: PubChatApi.DMConsentPolicy,
+        onResult: (PubChatApi.DMConsentSnapshot?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                authenticated { api.updateDMConsent(policy) }.also { result ->
+                    check(result.accountUid == expected.accountUid &&
+                        result.personaUid == expected.personaUid &&
+                        result.policy == policy) {
+                        "Сервер не подтвердил приватность текущей Persona"
+                    }
+                }
+            }
+                .onSuccess { value -> main.post { onResult(value, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
     fun loadProfile(accountUid: String, onResult: (PubChatApi.PersonSummary?, String?) -> Unit) {
         executor.execute {
             runCatching { authenticated { api.publicProfile(accountUid) } }

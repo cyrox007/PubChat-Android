@@ -26,6 +26,7 @@ internal fun ProfilePanel(state: AppState.SignedIn, controller: AppController, o
     val theme = LocalThemeControl.current
     var editing by remember { mutableStateOf(false) }
     var managingPersonas by remember { mutableStateOf(false) }
+    var managingDMConsent by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -43,6 +44,9 @@ internal fun ProfilePanel(state: AppState.SignedIn, controller: AppController, o
                 Button(onClick = { editing = true }, modifier = Modifier.fillMaxWidth()) { Text("Редактировать профиль") }
                 OutlinedButton(onClick = { managingPersonas = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Мои Persona")
+                }
+                OutlinedButton(onClick = { managingDMConsent = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Кто может писать мне")
                 }
             }
         }
@@ -71,6 +75,108 @@ internal fun ProfilePanel(state: AppState.SignedIn, controller: AppController, o
         state = state, controller = controller,
         onSaved = onState, onDismiss = { managingPersonas = false },
     )
+    if (managingDMConsent) DMConsentDialog(
+        controller = controller, onDismiss = { managingDMConsent = false },
+    )
+}
+
+@Composable
+private fun DMConsentDialog(
+    controller: AppController,
+    onDismiss: () -> Unit,
+) {
+    var snapshot by remember { mutableStateOf<ru.pubchat.app.core.network.PubChatApi.DMConsentSnapshot?>(null) }
+    var choice by remember { mutableStateOf(ru.pubchat.app.core.network.PubChatApi.DMConsentPolicy.NOBODY) }
+    var loading by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
+    var saved by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun reload() {
+        if (saving) return
+        loading = true
+        snapshot = null
+        saved = false
+        error = null
+        controller.loadDMConsent { remote, failure ->
+            loading = false
+            if (remote != null) {
+                snapshot = remote
+                choice = remote.policy
+            } else error = failure ?: "Сервер не вернул настройки приватности"
+        }
+    }
+
+    LaunchedEffect(Unit) { reload() }
+    Dialog(onDismissRequest = { if (!saving) onDismiss() }) {
+        Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface) {
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Приватность чатов", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "Вы управляете тем, кто может начать личный разговор. " +
+                        "Сервер всегда проверяет блокировки и ограничения отдельно.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (loading) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text("Получаем настройку с сервера…")
+                }
+                snapshot?.let { remote ->
+                    if (!remote.primaryPersona) {
+                        Text(
+                            "Для изменения общей политики Account переключитесь на основную Persona. " +
+                                "Дополнительный образ не создаёт отдельные настройки переписки.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    } else {
+                        Text("Кто может написать мне", style = MaterialTheme.typography.titleSmall)
+                        ru.pubchat.app.core.network.PubChatApi.DMConsentPolicy.values().forEach { option ->
+                            FilterChip(
+                                selected = choice == option,
+                                onClick = { choice = option; saved = false },
+                                enabled = !saving,
+                                label = { Text(option.label) },
+                            )
+                        }
+                        Text(
+                            choice.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = {
+                                if (saving) return@Button
+                                saving = true
+                                error = null
+                                saved = false
+                                controller.saveDMConsent(remote, choice) { updated, failure ->
+                                    saving = false
+                                    if (updated != null) {
+                                        snapshot = updated
+                                        choice = updated.policy
+                                        saved = true
+                                    } else error = failure ?: "Сервер не подтвердил изменение приватности"
+                                }
+                            },
+                            enabled = !saving && choice != remote.policy,
+                        ) { Text(if (saving) "Сохраняем…" else "Сохранить") }
+                        if (saved) {
+                            Text("Настройка подтверждена сервером", color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (!loading && snapshot == null) {
+                    OutlinedButton(onClick = { reload() }) { Text("Повторить") }
+                }
+                TextButton(onClick = onDismiss, enabled = !saving) { Text("Закрыть") }
+            }
+        }
+    }
 }
 
 @Composable
