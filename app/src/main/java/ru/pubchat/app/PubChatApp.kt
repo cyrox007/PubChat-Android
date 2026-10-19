@@ -270,7 +270,7 @@ private fun AuthScreen(
                         label = { Text("Имя пользователя") },
                         supportingText = { Text("3–32 символа: латиница, цифры, . и _") },
                         singleLine = true, enabled = !submitting,
-                        isError = handle.isNotEmpty() && !AuthFormRules.canRegister(handle, "", "12345678"),
+                        isError = handle.isNotEmpty() && !AuthFormRules.validHandle(handle),
                     )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
