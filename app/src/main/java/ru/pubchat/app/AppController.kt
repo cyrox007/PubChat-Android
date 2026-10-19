@@ -707,6 +707,18 @@ class AppController(context: Context) {
         }
     }
 
+    fun saveSpaceCategories(
+        spaceUid: String,
+        categorySlugs: List<String>,
+        onResult: (PubChatApi.SpaceSummary?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching { authenticated { api.updateSpaceCategories(spaceUid, categorySlugs) } }
+                .onSuccess { updated -> main.post { onResult(updated, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
     fun refreshSpace(spaceUid: String, onResult: (PubChatApi.SpaceSummary?, String?) -> Unit) {
         executor.execute {
             runCatching { authenticated { api.space(spaceUid) } }
