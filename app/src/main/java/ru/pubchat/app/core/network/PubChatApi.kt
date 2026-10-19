@@ -220,6 +220,23 @@ class PubChatApi(
         request("PATCH", "/spaces/v1/$uid", JSONObject().put("name", name.trim()).put("description", description.trim()))
     }
 
+    fun updateSpaceCategories(uid: String, categorySlugs: List<String>): SpaceSummary {
+        validateSpaceCategorySlugs(categorySlugs)
+        val body = JSONObject().put("category_slugs", JSONArray(categorySlugs))
+        val response = JSONObject(request("PATCH", "/spaces/v1/$uid", body).body)
+        return parseSpace(response.getJSONObject("space"))
+    }
+
+    internal fun validateSpaceCategorySlugs(slugs: List<String>) {
+        require(slugs.size <= 3 && slugs.distinct().size == slugs.size) {
+            "Для пространства можно выбрать не более трёх разных категорий"
+        }
+        require(slugs.all { Regex("^[a-z][a-z0-9-]{1,39}$").matches(it) }) {
+            "Недопустимый идентификатор категории"
+        }
+    }
+
+
     fun manageSpaceMember(uid: String, memberUid: String, action: String) {
         if (action in setOf("member", "moderator")) request("PATCH", "/spaces/v1/$uid/members/$memberUid", JSONObject().put("role", action))
         else request("PATCH", "/spaces/v1/$uid/members/$memberUid/membership", JSONObject().put("action", action))

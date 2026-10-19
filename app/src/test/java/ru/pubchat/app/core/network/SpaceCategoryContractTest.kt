@@ -24,6 +24,31 @@ class SpaceCategoryContractTest {
         assertTrue(space.categorySlugs.isEmpty())
     }
 
+    @Test
+    fun acceptsAtMostThreeUniqueWellFormedCategorySlugs() {
+        api.validateSpaceCategorySlugs(emptyList())
+        api.validateSpaceCategorySlugs(listOf("design", "technology", "games"))
+    }
+
+    @Test
+    fun rejectsInvalidCategoryChangesBeforeNetwork() {
+        val invalid = listOf(
+            listOf("design", "games", "technology", "art"),
+            listOf("design", "design"),
+            listOf("bad slug"),
+            listOf("../other"),
+            listOf("Дизайн"),
+        )
+        invalid.forEach { slugs ->
+            try {
+                api.validateSpaceCategorySlugs(slugs)
+                org.junit.Assert.fail("Unexpected valid assignment: $slugs")
+            } catch (_: IllegalArgumentException) {
+                // Expected: never send a malformed owner category update.
+            }
+        }
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun invalidFilterSlugDoesNotMakeNetworkRequest() {
         api.spaces("../escape")
