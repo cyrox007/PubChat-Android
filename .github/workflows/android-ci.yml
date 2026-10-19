@@ -134,9 +134,7 @@ jobs:
             "-PPUBCHAT_TEST_VERSION_CODE=100123"
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -n 1)"
-          test -x "$APKSIGNER"
-          "$APKSIGNER" verify --print-certs "$APK" | grep -q 'Signer #1 certificate SHA-256 digest:'
+          bash scripts/verify-android-qa-apk.sh "$APK"
           rm -f "$QA_KEY"
 
   # Real device QA must use one stable signing certificate on every run.
@@ -213,13 +211,7 @@ jobs:
             "-PPUBCHAT_TEST_VERSION_CODE=$BUILD_CODE"
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -n 1)"
-          test -x "$APKSIGNER"
-          "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/qa-apk-verification.txt"
-          grep -q 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/qa-apk-verification.txt"
-          awk '/Signer #1 certificate SHA-256 digest:/ {
-            print "Signing certificate SHA-256:", $NF
-          }' "$RUNNER_TEMP/qa-apk-verification.txt" > QA_SIGNING_CERT.txt
+          bash scripts/verify-android-qa-apk.sh "$APK" QA_SIGNING_CERT.txt
           sha256sum "$APK" > QA_APK_SHA256.txt
           echo "Verified signed QA APK, package ru.pubchat.app.debug, build code $BUILD_CODE"
           cat QA_SIGNING_CERT.txt
