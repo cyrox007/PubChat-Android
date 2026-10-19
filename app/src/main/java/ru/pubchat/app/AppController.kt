@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.space.SpaceCreationDraft
 import ru.pubchat.app.core.network.parseChatMessage
 import ru.pubchat.app.core.push.FcmRegistration
 import ru.pubchat.app.core.realtime.MessengerRealtimeClient
@@ -237,6 +238,18 @@ class AppController(context: Context) {
             runCatching { authenticated { api.spaces() } }
                 .onSuccess { spaces -> main.post { onState(current.copy(spaces = spaces, loading = false)) } }
                 .onFailure { error -> main.post { onState(current.copy(loading = false, error = humanMessage(error))) } }
+        }
+    }
+
+    fun createSpace(
+        draft: SpaceCreationDraft,
+        onResult: (PubChatApi.SpaceSummary?, String?) -> Unit,
+    ) {
+        draft.validationError()?.let { onResult(null, it); return }
+        executor.execute {
+            runCatching { authenticated { api.createSpace(draft) } }
+                .onSuccess { created -> main.post { onResult(created, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
         }
     }
 

@@ -3,6 +3,7 @@ package ru.pubchat.app.core.network
 import org.json.JSONArray
 import org.json.JSONObject
 import ru.pubchat.app.BuildConfig
+import ru.pubchat.app.core.space.SpaceCreationDraft
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -176,6 +177,23 @@ class PubChatApi(
         }
         val route = "/spaces/v1?limit=50" + (category?.let { "&category=$it" } ?: "")
         return parseSpaces(JSONObject(request("GET", route).body).optJSONArray("spaces") ?: JSONArray())
+    }
+
+    fun createSpace(draft: SpaceCreationDraft): SpaceSummary {
+        draft.validationError()?.let { throw IllegalArgumentException(it) }
+        val body = JSONObject()
+            .put("name", draft.name.trim().replace(Regex("\\s+"), " "))
+            .put("description", draft.description.trim().takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+            .put("purpose", draft.purpose)
+            .put("visibility", draft.visibility)
+            .put("join_policy", draft.joinPolicy)
+            .put("member_limit", draft.memberLimit)
+            .put("country", draft.country.trim().takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+            .put("region", draft.region.trim().takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+            .put("tags", JSONArray(draft.tags))
+            .put("category_slugs", JSONArray(draft.categorySlugs))
+        val response = JSONObject(request("POST", "/spaces/v1", body).body)
+        return parseSpace(response.getJSONObject("space"))
     }
 
     fun spaceCategories(): List<SpaceCategory> {
