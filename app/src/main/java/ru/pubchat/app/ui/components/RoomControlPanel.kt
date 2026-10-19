@@ -37,6 +37,11 @@ internal fun RoomControlPanel(
     var notice by remember { mutableStateOf<String?>(null) }
     var name by remember(space.name) { mutableStateOf(space.name) }
     var description by remember(space.description) { mutableStateOf(space.description.orEmpty()) }
+    var categoryOptions by remember(space.uid) { mutableStateOf<List<PubChatApi.SpaceCategory>>(emptyList()) }
+    var selectedCategories by remember(space.uid) { mutableStateOf(space.categorySlugs) }
+    var categoryLoading by remember(space.uid) { mutableStateOf(false) }
+    var categoryBusy by remember(space.uid) { mutableStateOf(false) }
+    var categoryError by remember(space.uid) { mutableStateOf<String?>(null) }
     var ruleTitle by remember { mutableStateOf("") }
     var ruleBody by remember { mutableStateOf("") }
     var eventTitle by remember { mutableStateOf("") }
@@ -47,6 +52,23 @@ internal fun RoomControlPanel(
     var reason by remember { mutableStateOf("") }
     var confirmText by remember { mutableStateOf("") }
     var confirmAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    fun loadCategories() {
+        if (!owner || categoryLoading) return
+        categoryLoading = true
+        categoryError = null
+        controller.loadSpaceCategories { loaded, failure ->
+            categoryLoading = false
+            if (failure == null) categoryOptions = loaded
+            else categoryError = failure
+        }
+    }
+    LaunchedEffect(space.uid) {
+        if (owner) loadCategories()
+    }
+    LaunchedEffect(space.categorySlugs) {
+        if (!categoryBusy) selectedCategories = space.categorySlugs
+    }
 
     fun reload() {
         if (tab == "overview") return
@@ -91,8 +113,10 @@ internal fun RoomControlPanel(
                         Text("О пространстве", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(space.name, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                     }
-                    if (manager) TextButton(onClick = { tab = "settings" }, contentPadding = PaddingValues(6.dp), modifier = Modifier.height(32.dp)) { Text("Настройки", fontSize = 11.sp) }
-                    TextButton(onClick = onClose, contentPadding = PaddingValues(6.dp), modifier = Modifier.height(32.dp)) { Text("Закрыть", fontSize = 11.sp) }
+                    // The server allows Space PATCH only to the owner, not moderators.
+                    if (owner) TextButton(onClick = { tab = "settings" },
+                        modifier = Modifier.heightIn(min = 48.dp)) { Text("Настройки") }
+                    TextButton(onClick = onClose, modifier = Modifier.heightIn(min = 48.dp)) { Text("Закрыть") }
                 }
                 val tabs = listOf("overview" to "Обзор", "people" to "Люди") +
                     (if (manager) listOf("requests" to "Заявки") else emptyList()) +
@@ -121,12 +145,88 @@ internal fun RoomControlPanel(
                             Text("Ваша роль: ${when { owner -> "Создатель"; manager -> "Модератор"; else -> "Участник" }}", fontSize = 12.sp)
                         }
                     }
-                    if (tab == "settings" && manager) {
+                    if (tab == "settings" && owner) {
                         item {
-                            Text("Управление пространством", style = MaterialTheme.typography.titleMedium)
-                            OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Название") })
-                            OutlinedTextField(description, { description = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("Описание") }, minLines = 3)
-                            Button(enabled = !busy && name.trim().length >= 3, onClick = { action("save", value = name, detail = description) }) { Text("Сохранить") }
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("Управление пространством", style = MaterialTheme.typography.titleMedium)
+                                OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Название") })
+                                OutlinedTextField(description, { description = it.take(500) },
+                                    Modifier.fillMaxWidth(), label = { Text("Описание") }, minLines = 3)
+                                Button(enabled = !busy && !categoryBusy && name.trim().length >= 3,
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    onClick = { action("save", value = name, detail = description) }) {
+                                    Text("Сохранить название и описание")
+                                }
+                                HorizontalDivider()
+                                Text("Категории", style = MaterialTheme.typography.titleMedium)
+                                Text("Выберите до трёх категорий. Формат и свободные теги пространства не изменятся.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                categoryError?.let {
+                                    Text("Категории недоступны: $it",
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall)
+                                    OutlinedButton(onClick = { loadCategories() },
+                                        enabled = !categoryLoading) { Text("Повторить загрузку") }
+                                }
+                                if (categoryLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                                if (!categoryLoading && categoryError == null && categoryOptions.isEmpty()) {
+                                    Text("Активных категорий пока нет.", style = MaterialTheme.typography.bodyMedium)
+                                }
+                                categoryOptions.forEach { category ->
+                                    val checked = selectedCategories.contains(category.slug)
+                                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Checkbox(
+                                            checked = checked,
+                                            onCheckedChange = { enabled ->
+                                                selectedCategories = if (enabled) {
+                                                    (selectedCategories + category.slug).distinct().take(3)
+                                                } else selectedCategories - category.slug
+                                            },
+                                            enabled = !categoryBusy && !categoryLoading &&
+                                                (checked || selectedCategories.size < 3),
+                                        )
+                                        Text(category.name, Modifier.weight(1f),
+                                            style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                                val archivedCategories = selectedCategories.filter { slug ->
+                                    categoryOptions.none { it.slug == slug }
+                                }
+                                if (archivedCategories.isNotEmpty() && !categoryLoading && categoryError == null) {
+                                    Text("Архивные категории необходимо убрать перед сохранением:",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall)
+                                    archivedCategories.forEach { slug ->
+                                        TextButton(onClick = {
+                                            selectedCategories = selectedCategories - slug
+                                        }, modifier = Modifier.heightIn(min = 48.dp)) {
+                                            Text("Убрать $slug")
+                                        }
+                                    }
+                                }
+                                Button(
+                                    enabled = !categoryBusy && !busy && !categoryLoading &&
+                                        categoryError == null && archivedCategories.isEmpty() &&
+                                        selectedCategories.size <= 3 &&
+                                        selectedCategories != space.categorySlugs,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                    onClick = {
+                                        categoryBusy = true
+                                        categoryError = null
+                                        controller.saveSpaceCategories(space.uid, selectedCategories) { updated, failure ->
+                                            categoryBusy = false
+                                            if (updated != null) {
+                                                onChanged(updated)
+                                                notice = "Категории сохранены"
+                                                error = null
+                                            } else categoryError = failure ?: "Не удалось сохранить категории"
+                                        }
+                                    },
+                                ) { Text(if (categoryBusy) "Сохраняем…" else "Сохранить категории") }
+                            }
                         }
                     }
                     if (tab == "overview" || tab == "settings") {
