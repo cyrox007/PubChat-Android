@@ -998,7 +998,7 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                 Text(space.name, style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold)
-                                Text(if (space.isActiveMember) "Вы участник" else "Можно присоединиться",
+                                Text(if (space.isActiveMember) "Вы участник" else "Не участник",
                                     color = MaterialTheme.colorScheme.primary,
                                     style = MaterialTheme.typography.labelMedium)
                                 space.purpose?.takeIf { it.isNotBlank() }?.let {
