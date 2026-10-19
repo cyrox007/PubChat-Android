@@ -75,27 +75,30 @@ class SpaceInvitationsContractTest {
             {"status":"ok","invitation":{"uid":"$invitationUid","status":"accepted",
              "space":${acceptedSpace()}}}
         """.trimIndent()
-        val confirmed = parseSpaceInvitationDecision(body, invitationUid, "accept", api::parseSpace)
+        val confirmed = parseSpaceInvitationDecision(body, invitationUid, "accept", spaceUid, api::parseSpace)
         assertEquals("accepted", confirmed.status)
         assertEquals(spaceUid, confirmed.space?.uid)
         assertTrue(confirmed.space?.isActiveMember == true)
         assertThrows(IllegalArgumentException::class.java) {
+            parseSpaceInvitationDecision(body, invitationUid, "accept", secondUid, api::parseSpace)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
             parseSpaceInvitationDecision(
-                body.replace("\"active\"", "\"pending\""), invitationUid, "accept", api::parseSpace
+                body.replace("\"active\"", "\"pending\""), invitationUid, "accept", spaceUid, api::parseSpace
             )
         }
     }
 
     @Test fun declineMustBeConfirmedByServerAndCannotReturnAnOpenableSpace() {
         val body = """{"status":"ok","invitation":{"uid":"$invitationUid","status":"declined"}}"""
-        val decision = parseSpaceInvitationDecision(body, invitationUid, "decline", api::parseSpace)
+        val decision = parseSpaceInvitationDecision(body, invitationUid, "decline", spaceUid, api::parseSpace)
         assertEquals("declined", decision.status)
         assertNull(decision.space)
         assertThrows(IllegalArgumentException::class.java) {
-            parseSpaceInvitationDecision(body, invitationUid, "accept", api::parseSpace)
+            parseSpaceInvitationDecision(body, invitationUid, "accept", spaceUid, api::parseSpace)
         }
         assertThrows(IllegalArgumentException::class.java) {
-            parseSpaceInvitationDecision(body, secondUid, "decline", api::parseSpace)
+            parseSpaceInvitationDecision(body, secondUid, "decline", spaceUid, api::parseSpace)
         }
     }
 
