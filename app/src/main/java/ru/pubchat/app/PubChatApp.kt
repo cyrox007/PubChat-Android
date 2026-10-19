@@ -1,6 +1,8 @@
 package ru.pubchat.app
 
 import ru.pubchat.app.core.calls.shouldShowCallDialog
+import ru.pubchat.app.core.auth.AuthFormRules
+import androidx.compose.foundation.layout.imePadding
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
@@ -148,78 +150,202 @@ private fun AuthScreen(
     var password by remember { mutableStateOf("") }
     var intent by remember { mutableStateOf("open") }
     var submitting by remember { mutableStateOf(false) }
-    // Completion is signaled on every request, including repeated identical HTTP 403 errors.
+    val canSubmit = !submitting && if (registration) {
+        AuthFormRules.canRegister(handle, name, password)
+    } else {
+        AuthFormRules.canLogin(identifier, password)
+    }
+    val registrationHint = if (registration) {
+        AuthFormRules.registrationHint(handle, name, password)
+    } else null
 
-    Scaffold { padding ->
+    fun selectMode(nextRegistration: Boolean) {
+        if (submitting || registration == nextRegistration) return
+        registration = nextRegistration
+        // Never keep a password entered in one auth flow when switching modes.
+        password = ""
+    }
+
+    fun submit() {
+        if (!canSubmit) return
+        submitting = true
+        if (registration) {
+            onRegister(handle.trim(), name.trim(), email.trim(), password, intent) {
+                submitting = false
+            }
+        } else {
+            onLogin(identifier.trim(), password) {
+                submitting = false
+            }
+        }
+    }
+
+    Scaffold { insets ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 36.dp),
-            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxSize().imePadding().padding(insets),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.Top,
         ) {
             item {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
                     Box(
-                        Modifier.size(68.dp).clip(RoundedCornerShape(19.dp))
+                        Modifier.size(60.dp).clip(RoundedCornerShape(18.dp))
                             .background(androidx.compose.ui.graphics.Brush.linearGradient(
                                 listOf(MaterialTheme.colorScheme.primary, androidx.compose.ui.graphics.Color(0xFF06C7EC))
-                            )), contentAlignment = Alignment.Center,
+                            )),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Text("P", fontWeight = FontWeight.ExtraBold, fontSize = 40.sp,
+                        Text("P", fontWeight = FontWeight.ExtraBold, fontSize = 36.sp,
                             color = androidx.compose.ui.graphics.Color.White)
                     }
-                    Column {
-                        Text("PubChat", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                        Text("Больше, чем чат.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.weight(1f)) {
+                        Text("PubChat", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Люди. Сообщества. Возможности.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                Text("Люди. Сообщества. Возможности.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(24.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (registration) OutlinedButton(onClick = { registration = false }) { Text("Вход") } else Button(onClick = {}) { Text("Вход") }
-                    if (registration) Button(onClick = {}) { Text("Создать образ") } else OutlinedButton(onClick = { registration = true; submitting = false }) { Text("Создать образ") }
+                Text(
+                    if (registration) "Создать аккаунт" else "С возвращением!",
+                    style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    if (registration) "Присоединяйся к сообществу людей и возможностей."
+                    else "Войди в свой аккаунт, чтобы продолжить общение.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    androidx.compose.material3.FilterChip(
+                        selected = !registration,
+                        onClick = { selectMode(false) },
+                        label = {
+                            Text("Вход", Modifier.fillMaxWidth(),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        },
+                        enabled = !submitting,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    )
+                    androidx.compose.material3.FilterChip(
+                        selected = registration,
+                        onClick = { selectMode(true) },
+                        label = {
+                            Text("Регистрация", Modifier.fillMaxWidth(),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        },
+                        enabled = !submitting,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    )
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
             }
             if (!registration) {
                 item {
-                    OutlinedTextField(identifier, { identifier = it }, Modifier.fillMaxWidth(), label = { Text("Логин, email или телефон") }, singleLine = true)
+                    OutlinedTextField(
+                        identifier, { identifier = it.take(255) }, Modifier.fillMaxWidth(),
+                        label = { Text("Логин или email") }, singleLine = true,
+                        enabled = !submitting,
+                    )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Пароль") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                    OutlinedTextField(
+                        password, { password = it.take(128) }, Modifier.fillMaxWidth(),
+                        label = { Text("Пароль") },
+                        visualTransformation = PasswordVisualTransformation(), singleLine = true,
+                        enabled = !submitting,
+                    )
                 }
             } else {
                 item {
-                    OutlinedTextField(handle, { handle = it }, Modifier.fillMaxWidth(), label = { Text("@handle") }, singleLine = true)
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Имя образа") }, singleLine = true)
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email (необязательно)") }, singleLine = true)
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Пароль · минимум 8 символов") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                    OutlinedTextField(
+                        handle, { handle = it.take(32) }, Modifier.fillMaxWidth(),
+                        label = { Text("Имя пользователя") },
+                        supportingText = { Text("3–32 символа: латиница, цифры, . и _") },
+                        singleLine = true, enabled = !submitting,
+                        isError = handle.isNotEmpty() && !AuthFormRules.validHandle(handle),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        name, { name = it.take(80) }, Modifier.fillMaxWidth(),
+                        label = { Text("Имя в профиле (необязательно)") },
+                        singleLine = true, enabled = !submitting,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        email, { email = it.take(254) }, Modifier.fillMaxWidth(),
+                        label = { Text("Email (необязательно)") },
+                        singleLine = true, enabled = !submitting,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        password, { password = it.take(128) }, Modifier.fillMaxWidth(),
+                        label = { Text("Пароль") },
+                        supportingText = { Text("От 8 до 128 символов") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true, enabled = !submitting,
+                        isError = password.isNotEmpty() && password.length < 8,
+                    )
                     Spacer(Modifier.height(12.dp))
-                    Text("Намерение общения", fontWeight = FontWeight.SemiBold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("open" to "Общение", "meet" to "Знакомства", "friends" to "Друзья").forEach { option ->
-                            if (intent == option.first) Button(onClick = { intent = option.first }) { Text(option.second) }
-                            else OutlinedButton(onClick = { intent = option.first }) { Text(option.second) }
+                    Text("Намерение общения", fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleSmall)
+                    androidx.compose.foundation.layout.FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        listOf("open" to "Общение", "meet" to "Знакомства",
+                            "friends" to "Друзья").forEach { (value, label) ->
+                            androidx.compose.material3.FilterChip(
+                                selected = intent == value,
+                                onClick = { intent = value },
+                                label = { Text(label) },
+                                enabled = !submitting,
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            )
                         }
+                    }
+                    if (registrationHint != null) {
+                        Text(registrationHint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
             item {
                 if (!error.isNullOrBlank()) {
                     Spacer(Modifier.height(12.dp))
-                    Text(error, color = MaterialTheme.colorScheme.error)
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        shape = RoundedCornerShape(14.dp),
+                    ) {
+                        Text(error, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
                 }
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(20.dp))
                 Button(
-                    onClick = {
-                        submitting = true
-                        if (registration) onRegister(handle, name, email, password, intent) { submitting = false }
-                        else onLogin(identifier, password) { submitting = false }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !submitting && password.isNotBlank() && if (registration) handle.isNotBlank() else identifier.isNotBlank(),
-                ) { Text(if (submitting) "Подключаем…" else if (registration) "Создать образ" else "Войти") }
+                    onClick = ::submit,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    enabled = canSubmit,
+                ) {
+                    if (submitting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (submitting) "Подключаем…" else if (registration) "Создать аккаунт" else "Войти")
+                }
             }
         }
     }
