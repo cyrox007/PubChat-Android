@@ -26,17 +26,49 @@ val pubChatApiBaseUrl = providers.gradleProperty("PUBCHAT_API_BASE_URL")
     .orElse("https://pubchat.ru/api")
     .get()
 
+// Optional long-lived QA signing identity. Signing material is provided from
+// secure CI secrets or a local developer environment, NEVER checked into Git.
+// An unsigned config is an error: do not silently fall back to an ephemeral
+// debug key when a QA identity was explicitly requested.
+val qaKeystorePath = providers.gradleProperty("PUBCHAT_QA_KEYSTORE_PATH").orNull
+val qaStorePassword = providers.environmentVariable("PUBCHAT_QA_STORE_PASSWORD").orNull
+val qaKeyAlias = providers.environmentVariable("PUBCHAT_QA_KEY_ALIAS").orNull
+val qaKeyPassword = providers.environmentVariable("PUBCHAT_QA_KEY_PASSWORD").orNull
+val qaSigningValues = listOf(qaKeystorePath, qaStorePassword, qaKeyAlias, qaKeyPassword)
+val qaSigningRequested = qaSigningValues.any { !it.isNullOrBlank() }
+require(!qaSigningRequested || qaSigningValues.all { !it.isNullOrBlank() }) {
+    "QA signing was requested but key path/alias/passwords are incomplete"
+}
+if (qaSigningRequested) {
+    require(file(qaKeystorePath!!).isFile) { "QA signing keystore path does not exist" }
+}
+
+val testVersionCode = providers.gradleProperty("PUBCHAT_TEST_VERSION_CODE").orNull
+    ?.toIntOrNull() ?: 1
+require(testVersionCode > 0) { "PUBCHAT_TEST_VERSION_CODE must be a positive integer" }
+
 android {
     namespace = "ru.pubchat.app"
     compileSdk {
         version = release(37)
     }
 
+    signingConfigs {
+        if (qaSigningRequested) {
+            create("deviceQa") {
+                storeFile = file(qaKeystorePath!!)
+                storePassword = qaStorePassword
+                keyAlias = qaKeyAlias
+                keyPassword = qaKeyPassword
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "ru.pubchat.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
+        versionCode = testVersionCode
         versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -47,6 +79,9 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            if (qaSigningRequested) {
+                signingConfig = signingConfigs.getByName("deviceQa")
+            }
         }
         release {
             optimization {
