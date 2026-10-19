@@ -75,6 +75,9 @@ internal fun ProfilePanel(state: AppState.SignedIn, controller: AppController, o
         state = state, controller = controller,
         onSaved = onState, onDismiss = { managingPersonas = false },
     )
+    if (managingDMConsent) DMConsentDialog(
+        controller = controller, onDismiss = { managingDMConsent = false },
+    )
 }
 
 @Composable
