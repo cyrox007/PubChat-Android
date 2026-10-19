@@ -763,3 +763,24 @@ internal fun parseSocialAvailability(value: JSONObject?): PubChatApi.SocialAvail
         expiresAt = expiresAt,
     )
 }
+
+
+/** Strictly read private /me or PATCH /privacy projections; unknown policies
+ * must never silently become 'everyone'. */
+internal fun parseDMConsentResponse(body: String): PubChatApi.DMConsentSnapshot {
+    val root = JSONObject(body)
+    require(root.getString("status") == "ok") { "Сервер не подтвердил настройку приватности" }
+    val accountUid = root.getJSONObject("account").getString("uid")
+    val persona = root.getJSONObject("persona")
+    val personaUid = persona.getString("uid")
+    require(accountUid.isNotBlank() && personaUid.isNotBlank()) { "Отсутствует текущий Account/Persona" }
+    val policyCode = root.getJSONObject("privacy").getString("dm_policy")
+    val policy = PubChatApi.DMConsentPolicy.fromCode(policyCode)
+        ?: error("Неизвестная политика личных сообщений")
+    return PubChatApi.DMConsentSnapshot(
+        accountUid = accountUid,
+        personaUid = personaUid,
+        primaryPersona = persona.getBoolean("is_primary"),
+        policy = policy,
+    )
+}
