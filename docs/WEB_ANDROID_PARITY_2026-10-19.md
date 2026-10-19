@@ -1,38 +1,43 @@
-# Web ↔ Android: функциональный паритет (19.10.2026)
+# Web ↔ Android: проверенный функциональный паритет (19.10.2026)
 
-Источник: реальный код `cyrox007/PubChat` (`main`), `cyrox007/PubChat-Android` (`master` до этого PR) и [единый roadmap](https://github.com/cyrox007/PubChat/blob/main/docs/roadmap.md). Здесь отмечается **наличие пользовательского сценария в коде**, а не доказанная готовность production. Web не является автоматически эталоном качества: слабые сценарии нужно улучшать в общей модели API/продукта.
+> Срез актуализирован по слитым PR **#51 и #53** и состоянию `master`. **Код / CI / реальные устройства / релизная приёмка — разные этапы.** Централизованный журнал всех трёх клиентов: [PubChat — delivery status](https://github.com/cyrox007/PubChat/blob/main/docs/cross-client-delivery-status.md). Планы и очередность Android — [issue #52](https://github.com/cyrox007/PubChat-Android/issues/52).
 
-| Сквозной сценарий | Web | Android до этой задачи | Приоритет следующей реализации |
+## Подтверждено кодом
+
+| Сценарий | Web / backend | Android `master` | Что осталось |
 | --- | --- | --- | --- |
-| Вход/регистрация/сессия | UI + API | UI + API | Проверить обновление токена на устройстве |
-| Spaces: каталог/категории/сообщения | UI + API | UI + API | Реальный offline/reconnect QA |
-| **Создать Space с выбором доступа, категорий и правил вступления** | `CreateSpaceModal.vue` | **Нет формы/API** | **P0 — этот PR** |
-| Space invites/входящие приглашения | `InvitationsView.vue` и Space API | Нет единого inbox-потока | P1 после создания |
-| Space Activities/повторы/напоминания | `SpaceLifeView`, Activity UI | Часть событий в room panel | P1 |
-| Профиль/Persona: базовые данные/несколько образов | UI + API | `ProfilePanel`/API | Реальные профили друзей, видимость/приватность |
-| Messenger: чат/отправка/редактирование/реакции | UI + API | UI + API | Confirm/retry + network QA |
-| **E2EE и политика приватных сообщений** | Web security UI + policy enforcement | Нативных ключей/verified E2EE нет | **P0 — отдельный security epic; fail-closed** |
-| Safety Center/жалобы/апелляции | UI + moderation API | Нет полноценного user safety flow | P0 после базовых действий |
-| Device sessions/отзыв сессий | `DeviceSessionsView.vue` | Нет user-management UI | P1 |
-| Уведомления/предпочтения доставки | `NotificationsView.vue`, preferences | Центр + FCM-клиент, нет полного editor | P1 |
-| Репутация/достижения | `AchievementsView.vue` | Неполный нативный сценарий | P2 |
-| Звонки/медиа/мультиустройство | WebRTC + media controls | Частичная нативная реализация | P0 physical-device QA, прежде расширения |
+| Identity v2, Persona, session refresh | API/UI | API/UI | Проверка устройств, 401/revocation |
+| Private Multi-Persona (до 3, выбор для сессии) | [PubChat PR #108](https://github.com/cyrox007/PubChat/pull/108) | [Android PR #35](https://github.com/cyrox007/PubChat-Android/pull/35) | Публичная адресация Persona и device QA |
+| Friendship hub, requests, block | Web [#109](https://github.com/cyrox007/PubChat/pull/109) | Android [#36](https://github.com/cyrox007/PubChat-Android/pull/36) | End-to-end 401/403/409 и revocation |
+| People discovery, intent и live availability TTL | Web + `/social/v1` | Код/UI | QA pagination, offline/reconnect |
+| **Создание Space (name/description/purpose/visibility/join policy/categories/cap/tags)** | `POST /spaces/v1` | **Готово в коде: [PR #51](https://github.com/cyrox007/PubChat-Android/pull/51), merge `05653df`**, обе CI-конфигурации green | **Реальный Android: create → сервер → открыть Space**, private/invite-only, errors |
+| **DM consent policy** | `PATCH /identity/v2/privacy`, `dm_policy` | **Готово в коде: [PR #53](https://github.com/cyrox007/PubChat-Android/pull/53), merge `7160c5d`**, enabled/disabled CI green | Device QA; запреты и revoke на каждом клиенте |
+| Space каталог/чат/управление участниками | Web + API | Код/UI | Device/network QA, parity owner permissions |
+| **Space invitations: inbox → принять/отклонить → открыть** | Web + API | **Нет завершённого inbox-flow** | **Следующий функциональный P0-срез** |
+| Space Activities, повторы, напоминания | Web + API | Часть событий room panel | Нативный полноценный сценарий, server timezone |
+| Messenger текст и действия | Web + API | Базовый Messenger | Поведение отказов и network QA |
+| **Messenger native E2EE** | Web security policy | **Нет полноценной native E2EE / device verification** | **P0 security: нет downgrade до plaintext при required E2EE** |
+| **Safety Center / reports / appeals** | Web + Trust & Safety API | **Нет полноценного сценария** | **P0 safety** |
+| Устройства, отзыв сессий | Web + Identity API | Нет полного editor | P1 |
+| Уведомления | Web + preferences | Notification center, FCM foundation | P1 preference editor + реальный FCM |
+| Calls/WebRTC | Web + signaling | Частичный native WebRTC | Реальные 2×OEM, Wi-Fi/LTE, фон, ICE/TURN |
 
-## Как делаем следующие задачи
+## Статус приёмки отдельно от реализации
 
-1. **Один пользовательский сценарий = серверный контракт + работающие Android экран и API + отказ/повтор + unit/CI + реальное устройство.**
-2. Privacy, owner-only, block, moderation и E2EE **не имитируются интерфейсом**: backend — источник прав. Никакой автоматической замены encrypted DM на plaintext.
-3. Не путать UI-наличие с feature-complete, особенно без реального устройства, FCM, TURN и WebRTC.
-4. Новые API должны использовать текущую модель `AppController`, CSRF proof, `PubChatApi` и существующие backend routes, а не отдельный обход или новый auth-контракт.
-5. Исправления Web продвигаются вместе с Android, когда исходный продуктовый сценарий слаб или противоречив; число экранов не является метрикой готовности.
+- **Space creation:** code merged, CI confirmed in PR #51; **physical Android QA ещё не подтверждён**. Не планировать создание формы/API повторно.
+- **DM consent:** code merged, обе конфигурации Android CI run [39315301247](https://github.com/cyrox007/PubChat-Android/actions/runs/39315301247) successful; **device/cross-client privacy QA остаётся**. Не создавать второй редактор policy.
+- **Friendships / Multi-Persona / live availability:** code exists across clients в соответствующих срезах, но публичный Multi-Persona, cross-account leakage QA и acceptance ещё не закрыты.
+- **Messenger E2EE:** наличие plaintext composer не означает безопасный DM в условиях `required`. Не маркировать безопасность Messenger зелёной до криптографической реализации и проверок.
 
-### Очередь ближайших поставок
+## Следующая функциональная очередь
 
-- [x] Создание Spaces (этот PR: `POST /spaces/v1`, full request, категории, приватность, открытие созданного Space).
-- [ ] Приглашения: единый inbox / принять / отклонить / ошибочная или устаревшая заявка.
-- [ ] Safety Center: жалоба из Persona/Space/DM, свои обращения, ограничения, апелляции.
-- [ ] Messenger E2EE: device registration/key trust, reply/forward policy, never downgrade protection.
-- [ ] Уведомления: реальные политики по категориям доставки и проверка FCM.
-- [ ] Сквозной QA новых сценариев на физическом Android; задачи не закрывать одним зелёным Gradle.
+1. **Space invitations (P0):** входящие приглашения (пустой список, loading, error, retry), принять/отклонить/открыть сообщество только после server confirmation; revoked/expired/block/private/invite-only и повтор запроса.
+2. **Messenger E2EE (P0 security):** устройства/ключи, доверие, отказ при required E2EE, no silent plaintext downgrade, Web↔Android tests.
+3. **Safety Center (P0 safety):** жалоба на Persona/Space/message, своя история, ограничения и апелляция без утечек модераторских полей.
+4. **P1:** полноценные Activities, управление сессиями, уведомления/FCM и согласие на контакты с физической QA матрицей.
 
-Продуктовый приоритет нужно подтвердить результатами QA и фактической частотой использования. Внешние release/push функции не обещаются до проверки сервера и реального устройства.
+## Правило следующего PR
+
+Перед любой реализацией проверить реальные merged PR и `master`; после каждого merge обновить здесь строку и GitHub issue #52 с отдельными состояниями **код, CI, физическое устройство**. Работа над экраном не закрывает весь пользовательский сценарий. Backend владеет permission/privacy/DM/E2EE; Android выполняет действия только с подтверждённым API и не имитирует серверные решения.
+
+Android release-ready только после проверенных пользовательских сценариев и реальной device-матрицы; зелёный Gradle не равен 1.0 parity.
