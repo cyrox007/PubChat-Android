@@ -1,7 +1,5 @@
 package ru.pubchat.app.ui.theme
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -9,7 +7,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.drawRect
+import androidx.compose.ui.graphics.lerp
 
 /**
  * Quiet ambient depth from the approved PubChat boards. Brushes are cached
@@ -23,9 +21,9 @@ fun Modifier.pubChatBackdrop(): Modifier {
     return this.drawWithCache {
         val backdrop = Brush.verticalGradient(
             colors = listOf(
-                Color.lerp(base, primary, .045f),
+                lerp(base, primary, .045f),
                 base,
-                Color.lerp(base, tertiary, .030f),
+                lerp(base, tertiary, .030f),
             ),
         )
         val topGlow = Brush.radialGradient(
