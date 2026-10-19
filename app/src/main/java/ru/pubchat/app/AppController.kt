@@ -269,11 +269,12 @@ class AppController(context: Context) {
 
     fun respondSpaceInvitation(
         uid: String,
+        expectedSpaceUid: String,
         action: String,
         onResult: (SpaceInvitationDecision?, String?) -> Unit,
     ) {
         executor.execute {
-            runCatching { authenticated { api.respondSpaceInvitation(uid, action) } }
+            runCatching { authenticated { api.respondSpaceInvitation(uid, expectedSpaceUid, action) } }
                 .onSuccess { result -> main.post { onResult(result, null) } }
                 .onFailure { error -> main.post { onResult(null, invitationErrorMessage(error)) } }
         }
