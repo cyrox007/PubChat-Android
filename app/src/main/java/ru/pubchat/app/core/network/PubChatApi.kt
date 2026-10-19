@@ -25,6 +25,27 @@ class PubChatApi(
         val country: String? = null,
     )
 
+    enum class DMConsentPolicy(val code: String, val label: String, val description: String) {
+        EVERYONE("everyone", "Все участники",
+            "Написать могут участники платформы с учётом блокировок и серверных ограничений."),
+        SHARED_SPACES("shared_spaces", "Из общих пространств",
+            "Начать разговор могут участники общих пространств, когда сервер разрешает доступ."),
+        MUTUAL("mutual", "Только взаимные контакты",
+            "Право начать разговор зависит от взаимной связи, подтверждённой сервером."),
+        NOBODY("nobody", "Никто", "Запретить новые обращения.");
+
+        companion object {
+            fun fromCode(code: String): DMConsentPolicy? = values().firstOrNull { it.code == code }
+        }
+    }
+
+    data class DMConsentSnapshot(
+        val accountUid: String,
+        val personaUid: String,
+        val primaryPersona: Boolean,
+        val policy: DMConsentPolicy,
+    )
+
     data class PersonaSummary(
         val uid: String, val handle: String,
         val displayName: String, val isPrimary: Boolean,
