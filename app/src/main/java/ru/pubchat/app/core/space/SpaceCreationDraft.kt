@@ -17,7 +17,7 @@ data class SpaceCreationDraft(
     val categorySlugs: List<String> = emptyList(),
 ) {
     val tags: List<String> get() = tagsInput.split(',').map { it.trim().replace(Regex("\\s+"), " ") }
-        .filter(String::isNotBlank).distinctBy(String::lowercase)
+        .filter { it.isNotBlank() }.distinctBy { it.lowercase() }
 
     fun validationError(activeCategorySlugs: Set<String>? = null): String? {
         if (name.trim().replace(Regex("\\s+"), " ").length !in 3..80)
