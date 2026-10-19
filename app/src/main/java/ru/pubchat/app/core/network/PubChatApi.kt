@@ -186,6 +186,16 @@ class PubChatApi(
         return parseIdentity(JSONObject(response.body), refreshCookie())
     }
 
+    fun myDMConsent(): DMConsentSnapshot =
+        parseDMConsentResponse(request("GET", "/identity/v2/me").body)
+
+    fun updateDMConsent(policy: DMConsentPolicy): DMConsentSnapshot {
+        val payload = JSONObject().put("dm_policy", policy.code)
+        val result = parseDMConsentResponse(request("PATCH", "/identity/v2/privacy", payload).body)
+        check(result.policy == policy) { "Сервер не подтвердил изменение приватности" }
+        return result
+    }
+
     fun updateProfile(name: String, bio: String, city: String, country: String, intent: String): Identity {
         request("PATCH", "/identity/v2/persona", JSONObject().put("display_name", name.trim()).put("bio", bio.trim())
             .put("city", city.trim()).put("country", country.trim()).put("social_intent", intent))
