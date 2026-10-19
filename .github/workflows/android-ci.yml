@@ -114,6 +114,31 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # Exercise Gradle's QA-signing path in PRs without using repository secrets
+      # or distributing this synthetic certificate. This APK is NOT uploaded.
+      - name: Verify QA signing override with disposable local test key
+        if: matrix.firebase == 'disabled'
+        shell: bash
+        run: |
+          set -euo pipefail
+          QA_KEY="$RUNNER_TEMP/pubchat-qa-ci-validation.jks"
+          keytool -genkeypair -noprompt -keystore "$QA_KEY" \
+            -storepass CIOnlyTestingPassword123 -keypass CIOnlyTestingPassword123 \
+            -alias ci-device-qa -keyalg RSA -keysize 2048 -validity 1 \
+            -dname 'CN=PubChat Test Signing Fixture' >/dev/null 2>&1
+          export PUBCHAT_QA_STORE_PASSWORD='CIOnlyTestingPassword123'
+          export PUBCHAT_QA_KEY_ALIAS='ci-device-qa'
+          export PUBCHAT_QA_KEY_PASSWORD='CIOnlyTestingPassword123'
+          ./gradlew :app:assembleDebug --stacktrace \
+            "-PPUBCHAT_QA_KEYSTORE_PATH=$QA_KEY" \
+            "-PPUBCHAT_TEST_VERSION_CODE=100123"
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$APK" | grep -q 'Signer #1 certificate SHA-256 digest:'
+          rm -f "$QA_KEY"
+
   # Real device QA must use one stable signing certificate on every run.
   # Runs only on trusted master pushes, after BOTH existing CI matrix legs pass.
   # When QA secrets are absent no misleading "upgradeable" APK is published.
