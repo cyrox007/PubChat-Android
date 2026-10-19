@@ -113,3 +113,104 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+  # Real device QA must use one stable signing certificate on every run.
+  # Runs only on trusted master pushes, after BOTH existing CI matrix legs pass.
+  # When QA secrets are absent no misleading "upgradeable" APK is published.
+  signed-device-qa:
+    name: Signed Android device QA APK
+    needs: [android]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check optional persistent signing configuration
+        id: signing
+        env:
+          QA_KEYSTORE_B64: ${{ secrets.PUBCHAT_QA_KEYSTORE_B64 }}
+          PUBCHAT_QA_STORE_PASSWORD: ${{ secrets.PUBCHAT_QA_STORE_PASSWORD }}
+          PUBCHAT_QA_KEY_ALIAS: ${{ secrets.PUBCHAT_QA_KEY_ALIAS }}
+          PUBCHAT_QA_KEY_PASSWORD: ${{ secrets.PUBCHAT_QA_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$QA_KEYSTORE_B64" && -z "$PUBCHAT_QA_STORE_PASSWORD" &&
+                -z "$PUBCHAT_QA_KEY_ALIAS" && -z "$PUBCHAT_QA_KEY_PASSWORD" ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No permanent QA signing key configured; only the disposable first-install APK is available."
+          elif [[ -z "$QA_KEYSTORE_B64" || -z "$PUBCHAT_QA_STORE_PASSWORD" ||
+                  -z "$PUBCHAT_QA_KEY_ALIAS" || -z "$PUBCHAT_QA_KEY_PASSWORD" ]]; then
+            echo "::error::QA signing secrets are partially configured. Supply all four, or none."
+            exit 1
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up JDK 17
+        if: steps.signing.outputs.configured == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Gradle
+        if: steps.signing.outputs.configured == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore QA keystore outside the repository
+        if: steps.signing.outputs.configured == 'true'
+        env:
+          QA_KEYSTORE_B64: ${{ secrets.PUBCHAT_QA_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$QA_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/pubchat-qa-signing.jks"
+          test -s "$RUNNER_TEMP/pubchat-qa-signing.jks"
+
+      - name: Build permanently signed QA APK
+        if: steps.signing.outputs.configured == 'true'
+        env:
+          PUBCHAT_QA_STORE_PASSWORD: ${{ secrets.PUBCHAT_QA_STORE_PASSWORD }}
+          PUBCHAT_QA_KEY_ALIAS: ${{ secrets.PUBCHAT_QA_KEY_ALIAS }}
+          PUBCHAT_QA_KEY_PASSWORD: ${{ secrets.PUBCHAT_QA_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          # This grows across master runs, unlike Gradle's default versionCode=1.
+          BUILD_CODE=$((100000 + GITHUB_RUN_NUMBER))
+          ./gradlew :app:assembleDebug --stacktrace \
+            "-PPUBCHAT_QA_KEYSTORE_PATH=$RUNNER_TEMP/pubchat-qa-signing.jks" \
+            "-PPUBCHAT_TEST_VERSION_CODE=$BUILD_CODE"
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/qa-apk-verification.txt"
+          grep -q 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/qa-apk-verification.txt"
+          awk '/Signer #1 certificate SHA-256 digest:/ {
+            print "Signing certificate SHA-256:", $NF
+          }' "$RUNNER_TEMP/qa-apk-verification.txt" > QA_SIGNING_CERT.txt
+          sha256sum "$APK" > QA_APK_SHA256.txt
+          echo "Verified signed QA APK, package ru.pubchat.app.debug, build code $BUILD_CODE"
+          cat QA_SIGNING_CERT.txt
+
+      - name: Publish upgradable signed Android QA APK
+        if: steps.signing.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pubchat-device-qa-signed
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            QA_SIGNING_CERT.txt
+            QA_APK_SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove restored signing material
+        if: always() && steps.signing.outputs.configured == 'true'
+        run: rm -f "$RUNNER_TEMP/pubchat-qa-signing.jks"
