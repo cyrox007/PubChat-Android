@@ -227,6 +227,19 @@ class PubChatApi(
         return parseSpace(response.getJSONObject("space"))
     }
 
+    /** The server returns only invitations addressed to this authenticated Account. */
+    fun spaceInvitations(limit: Int = 25, offset: Int = 0): SpaceInvitationPage {
+        require(limit in 1..100 && offset >= 0) { "Некорректная страница приглашений" }
+        val body = request("GET", "/spaces/v1/invitations?limit=$limit&offset=$offset").body
+        return parseSpaceInvitationPage(body, limit, offset)
+    }
+
+    fun respondSpaceInvitation(uid: String, action: String): SpaceInvitationDecision {
+        require(java.util.UUID.fromString(uid).toString() == uid.lowercase()) { "Некорректное приглашение" }
+        val body = request("PATCH", "/spaces/v1/invitations/$uid", invitationActionPayload(action)).body
+        return parseSpaceInvitationDecision(body, uid, action, ::parseSpace)
+    }
+
     fun spaceCategories(): List<SpaceCategory> {
         val items = JSONObject(request("GET", "/spaces/v1/categories").body)
             .optJSONArray("categories") ?: JSONArray()
