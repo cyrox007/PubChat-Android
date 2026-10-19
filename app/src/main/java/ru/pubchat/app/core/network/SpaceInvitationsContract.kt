@@ -76,6 +76,7 @@ internal fun parseSpaceInvitationDecision(
     body: String,
     requestedUid: String,
     requestedAction: String,
+    expectedSpaceUid: String,
     parseSpace: (JSONObject) -> PubChatApi.SpaceSummary,
 ): SpaceInvitationDecision {
     require(requestedAction == "accept" || requestedAction == "decline")
@@ -89,7 +90,7 @@ internal fun parseSpaceInvitationDecision(
     require(status == expected) { "Сервер не подтвердил результат приглашения" }
     val space = if (status == "accepted") {
         val projection = parseSpace(item.getJSONObject("space"))
-        require(projection.uid.isNotBlank() && projection.isActiveMember) {
+        require(projection.uid == requiredUid(expectedSpaceUid, "expected.space_uid") && projection.isActiveMember) {
             "Сервер не подтвердил участие в пространстве"
         }
         projection
