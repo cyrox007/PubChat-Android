@@ -88,6 +88,7 @@ import ru.pubchat.app.ui.components.PubChatEmptyState
 import ru.pubchat.app.ui.components.PubChatListSkeleton
 import ru.pubchat.app.ui.components.RoomMessageCard
 import ru.pubchat.app.ui.components.CreateSpaceDialog
+import ru.pubchat.app.ui.components.SpaceInvitationsDialog
 import ru.pubchat.app.ui.theme.pubChatBackdrop
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -1063,6 +1064,7 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var categoryMenuOpen by remember { mutableStateOf(false) }
     var createSpaceOpen by remember { mutableStateOf(false) }
+    var invitationsOpen by remember { mutableStateOf(false) }
     var filteredSpaces by remember { mutableStateOf<List<PubChatApi.SpaceSummary>?>(null) }
     var filterBusy by remember { mutableStateOf(false) }
     var filterError by remember { mutableStateOf<String?>(null) }
@@ -1117,6 +1119,10 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                             enabled = !visibleLoading,
                         ) { Text("＋ Создать пространство") }
+                        OutlinedButton(
+                            onClick = { invitationsOpen = true },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        ) { Text("✉ Входящие приглашения") }
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1273,6 +1279,20 @@ private fun SpacesContent(state: AppState.SignedIn, controller: AppController, o
                 }
             }
         }
+    }
+    if (invitationsOpen) {
+        SpaceInvitationsDialog(
+            controller = controller,
+            onDismiss = { invitationsOpen = false },
+            onAccepted = { confirmedSpace ->
+                invitationsOpen = false
+                selectedCategory = null
+                filteredSpaces = null
+                filterError = null
+                controller.reload(state, onState)
+                onOpen(confirmedSpace)
+            },
+        )
     }
     if (createSpaceOpen) {
         CreateSpaceDialog(
