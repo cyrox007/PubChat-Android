@@ -240,6 +240,25 @@ class AppController(context: Context) {
         }
     }
 
+    fun loadSpaceCategories(onResult: (List<PubChatApi.SpaceCategory>, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.spaceCategories() } }
+                .onSuccess { categories -> main.post { onResult(categories, null) } }
+                .onFailure { error -> main.post { onResult(emptyList(), humanMessage(error)) } }
+        }
+    }
+
+    fun loadSpacesForCategory(
+        category: String,
+        onResult: (List<PubChatApi.SpaceSummary>?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching { authenticated { api.spaces(category) } }
+                .onSuccess { spaces -> main.post { onResult(spaces, null) } }
+                .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
     fun loadPeople(
         query: String,
         intent: String? = null,
