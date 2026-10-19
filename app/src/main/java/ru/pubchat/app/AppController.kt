@@ -15,6 +15,9 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.network.SpaceInvitationPage
+import ru.pubchat.app.core.network.SpaceInvitationDecision
+import ru.pubchat.app.core.network.invitationErrorMessage
 import ru.pubchat.app.core.space.SpaceCreationDraft
 import ru.pubchat.app.core.network.parseChatMessage
 import ru.pubchat.app.core.push.FcmRegistration
@@ -250,6 +253,29 @@ class AppController(context: Context) {
             runCatching { authenticated { api.createSpace(draft) } }
                 .onSuccess { created -> main.post { onResult(created, null) } }
                 .onFailure { error -> main.post { onResult(null, humanMessage(error)) } }
+        }
+    }
+
+    fun loadSpaceInvitations(
+        offset: Int = 0,
+        onResult: (SpaceInvitationPage?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching { authenticated { api.spaceInvitations(offset = offset) } }
+                .onSuccess { page -> main.post { onResult(page, null) } }
+                .onFailure { error -> main.post { onResult(null, invitationErrorMessage(error)) } }
+        }
+    }
+
+    fun respondSpaceInvitation(
+        uid: String,
+        action: String,
+        onResult: (SpaceInvitationDecision?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching { authenticated { api.respondSpaceInvitation(uid, action) } }
+                .onSuccess { result -> main.post { onResult(result, null) } }
+                .onFailure { error -> main.post { onResult(null, invitationErrorMessage(error)) } }
         }
     }
 
