@@ -13,7 +13,7 @@
 | **Создание Space (name/description/purpose/visibility/join policy/categories/cap/tags)** | `POST /spaces/v1` | **Готово в коде: [PR #51](https://github.com/cyrox007/PubChat-Android/pull/51), merge `05653df`**, обе CI-конфигурации green | **Реальный Android: create → сервер → открыть Space**, private/invite-only, errors |
 | **DM consent policy** | `PATCH /identity/v2/privacy`, `dm_policy` | **Готово в коде: [PR #53](https://github.com/cyrox007/PubChat-Android/pull/53), merge `7160c5d`**, enabled/disabled CI green | Device QA; запреты и revoke на каждом клиенте |
 | Space каталог/чат/управление участниками | Web + API | Код/UI | Device/network QA, parity owner permissions |
-| **Space invitations: inbox → принять/отклонить → открыть** | Web + API | **[PR #56](https://github.com/cyrox007/PubChat-Android/pull/56), merge `07cae34` — **code merged, обе конфигурации CI green**; physical-device acceptance отдельно | Требуется реальный Android QA и Web↔Android revoked/expired/blocked parity |
+| **Space invitations: inbox → принять/отклонить → открыть** | Web + API | **[PR #56](https://github.com/cyrox007/PubChat-Android/pull/56), merge `07cae34`: код слит, обе конфигурации CI green**; физическая приёмка отдельно | Требуется реальный Android QA и Web↔Android revoked/expired/blocked parity |
 | Space Activities, повторы, напоминания | Web + API | Часть событий room panel | Нативный полноценный сценарий, server timezone |
 | Messenger текст и действия | Web + API | Базовый Messenger | Поведение отказов и network QA |
 | **Messenger native E2EE** | Web security policy | **Нет полноценной native E2EE / device verification** | **P0 security: нет downgrade до plaintext при required E2EE** |
