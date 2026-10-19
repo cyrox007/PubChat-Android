@@ -408,8 +408,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
 
     fun loadPeople() {
         peopleLoading = true
+        peopleError = null
         controller.loadPeople(search, peopleIntent.takeUnless { it == "all" }, peopleAvailableNow) { result, error ->
-            people = result
+            // A transient refresh failure must not erase the last visible directory.
+            if (error == null) people = result
             peopleError = error
             peopleLoading = false
         }
@@ -493,7 +495,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         controller.loadDialogs { loaded, error ->
             dialogsLoading = false
             messengerError = error
-            dialogs = if (synthetic != null && loaded.none { it.partnerUid == synthetic.partnerUid }) listOf(synthetic) + loaded else loaded
+            // Keep existing conversations on a recoverable network failure.
+            if (error == null) dialogs = if (synthetic != null && loaded.none { it.partnerUid == synthetic.partnerUid }) listOf(synthetic) + loaded else loaded
             val target = openPeer?.let { uid -> dialogs.find { it.partnerUid == uid } ?: synthetic }
             activeDialog = target
             connectMessenger(target?.partnerUid)
@@ -666,8 +669,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             AppSection.SPACES -> "Пространства"
                             AppSection.PEOPLE -> "Люди"
                             AppSection.FRIENDSHIPS -> "Друзья и заявки"
-                            AppSection.MESSENGER -> "Сообщения"
-                            AppSection.NOTIFICATIONS -> "Уведомления"
+                            AppSection.MESSENGER -> "Чаты"
+                            AppSection.NOTIFICATIONS -> "Активность"
                             AppSection.PROFILE -> "Профиль"
                             AppSection.PERSON -> person?.displayName ?: "Образ"
                             AppSection.SPACE -> activeSpace?.name ?: "Пространство"
@@ -711,10 +714,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         icon = { Icon(painterResource(R.drawable.ic_people), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Люди", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.MESSENGER,
                         onClick = { section = AppSection.MESSENGER; loadDialogsAndConnect() },
-                        icon = { Icon(painterResource(R.drawable.ic_messages), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Сообщения", fontSize = 10.sp, maxLines = 1, softWrap = false) })
+                        icon = { Icon(painterResource(R.drawable.ic_messages), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Чаты", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.NOTIFICATIONS,
                         onClick = { controller.closeMessenger(); section = AppSection.NOTIFICATIONS; loadNotices() },
-                        icon = { Icon(painterResource(R.drawable.ic_notifications), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Уведомления", fontSize = 10.sp, maxLines = 1, softWrap = false) })
+                        icon = { Icon(painterResource(R.drawable.ic_notifications), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Активность", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.PROFILE,
                         onClick = { controller.closeMessenger(); section = AppSection.PROFILE },
                         icon = { Icon(painterResource(R.drawable.ic_profile), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Профиль", fontSize = 10.sp, maxLines = 1, softWrap = false) })
@@ -1042,12 +1045,30 @@ private fun PeopleContent(
             OutlinedTextField(query, onQuery, Modifier.weight(1f), label = { Text("Имя или @handle") }, singleLine = true)
             TextButton(onClick = onSearch) { Text("Найти") }
         }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (loading) PubChatListSkeleton()
+        if (loading && people.isNotEmpty()) {
+            androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+        error?.let { message ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(if (people.isEmpty()) "Каталог людей недоступен" else "Не удалось обновить список",
+                        fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
+                    if (people.isNotEmpty()) Text("Показаны предыдущие результаты поиска.",
+                        color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = onSearch, enabled = !loading) { Text("Повторить") }
+                }
+            }
+        }
+        if (loading && people.isEmpty()) PubChatListSkeleton()
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
-            if (people.isEmpty()) item {
+            if (people.isEmpty() && error == null && !loading) item {
                 PubChatEmptyState(title = "Никого не найдено",
-                    explanation = "Попробуйте изменить фильтры или имя в поиске.")
+                    explanation = "Попробуйте изменить фильтры или имя в поиске.",
+                    actionLabel = "Обновить", onAction = onSearch)
             }
             items(people, key = PubChatApi.PersonSummary::accountUid) { person ->
                 Card(Modifier.fillMaxWidth().clickable { onOpen(person) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
@@ -1073,11 +1094,29 @@ private fun PeopleContent(
 
 @Composable
 private fun MessengerListContent(dialogs: List<PubChatApi.DialogSummary>, loading: Boolean, error: String?, online: Map<String, Boolean>, onOpen: (PubChatApi.DialogSummary) -> Unit, onReload: () -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
-        if (loading) Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        if (loading && dialogs.isNotEmpty()) {
+            androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+        error?.let { message ->
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(if (dialogs.isEmpty()) "Не удалось загрузить чаты" else "Не удалось обновить чаты",
+                        fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
+                    if (dialogs.isNotEmpty()) Text("Сохранён текущий список диалогов.",
+                        color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = onReload, enabled = !loading) { Text("Повторить") }
+                }
+            }
+        }
+        if (loading && dialogs.isEmpty()) PubChatListSkeleton()
         else LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (dialogs.isEmpty()) item {
+            if (dialogs.isEmpty() && error == null && !loading) item {
                 PubChatEmptyState(
                     title = "Здесь пока нет сообщений",
                     explanation = "Найдите интересного человека, чтобы начать общение.",
