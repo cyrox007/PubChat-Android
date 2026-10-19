@@ -46,102 +46,146 @@ internal fun RoomMessageCard(
     onReply: (() -> Unit)? = null,
     onSelect: (() -> Unit)? = null,
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (own) Arrangement.End else Arrangement.Start) {
+    // The bubble owns only content and metadata; a 48dp touch target for reply
+    // sits *beside* it instead of stretching every short message to 100+dp.
+    @Composable
+    fun ReplyAction() {
+        if (onReply != null) {
+            IconButton(
+                onClick = onReply,
+                modifier = Modifier.size(48.dp).semantics {
+                    contentDescription = "Ответить на сообщение"
+                },
+            ) {
+                Text("↩", fontSize = 20.sp, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (own) Arrangement.End else Arrangement.Start,
+    ) {
+        if (own) ReplyAction()
         Surface(
-            modifier = Modifier.widthIn(max = 350.dp)
+            modifier = Modifier.widthIn(max = 310.dp)
                 .let { if (onSelect != null) it.clickable(onClick = onSelect) else it },
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(
+                topStart = 16.dp, topEnd = 16.dp,
+                bottomStart = if (own) 16.dp else 5.dp,
+                bottomEnd = if (own) 5.dp else 16.dp,
+            ),
             color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 1.dp,
+            shadowElevation = 1.dp,
         ) {
             Column(
-                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    val avatar = publicMediaUrl(message.senderAvatar)
-                    Box(
-                        Modifier.size(32.dp).clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = .12f)),
-                        contentAlignment = Alignment.Center,
+                if (!own) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(message.senderName?.take(1)?.uppercase() ?: "?", fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.primary)
-                        if (avatar != null) AsyncImage(
-                            avatar, "Аватар автора", Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                        val avatar = publicMediaUrl(message.senderAvatar)
+                        Box(
+                            Modifier.size(23.dp).clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = .12f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(message.senderName?.take(1)?.uppercase() ?: "?", fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary)
+                            if (avatar != null) AsyncImage(
+                                avatar, "Аватар автора", Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                        }
+                        Text(
+                            message.senderName ?: "Участник",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Text(message.senderName ?: if (own) "Вы" else "Участник",
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis)
-                    Text(messageTime(message.createdAt), style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
-
                 if (message.replyToUid != null) {
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        Modifier.widthIn(min = 128.dp, max = 270.dp)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(MaterialTheme.colorScheme.surface.copy(alpha = .72f))
                             .let {
-                                if (onReplyJump != null) it.clickable(onClickLabel = "Открыть исходное сообщение", onClick = onReplyJump)
-                                else it
+                                if (onReplyJump != null) it.clickable(
+                                    onClickLabel = "Открыть исходное сообщение",
+                                    onClick = onReplyJump,
+                                ) else it
                             }
-                            .heightIn(min = 48.dp).padding(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            .heightIn(min = if (onReplyJump != null) 48.dp else 0.dp)
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.width(3.dp).height(34.dp).background(MaterialTheme.colorScheme.primary))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(message.replySenderName ?: replySource?.senderName ?: "Ответ на сообщение",
-                                style = MaterialTheme.typography.labelMedium,
+                        Box(Modifier.width(3.dp).height(28.dp)
+                            .background(MaterialTheme.colorScheme.primary))
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                message.replySenderName ?: replySource?.senderName ?: "Ответ",
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(message.replyContent ?: replySource?.content ?: "Исходное сообщение недоступно",
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                message.replyContent ?: replySource?.content ?: "Исходное сообщение недоступно",
                                 style = MaterialTheme.typography.bodySmall,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }
 
                 if (message.contentType == "deleted") {
-                    Text("Сообщение удалено", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Text("Сообщение удалено",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium)
                 } else {
-                    message.attachments.forEach { attachment -> MessageAttachment(attachment, message.contentType) }
-                    if (message.content.isNotBlank() && message.attachments.none { it.url == message.content }) {
-                        Text(message.content, style = MaterialTheme.typography.bodyLarge, lineHeight = 22.sp)
+                    message.attachments.forEach { attachment ->
+                        MessageAttachment(attachment, message.contentType)
+                    }
+                    if (message.content.isNotBlank() &&
+                        message.attachments.none { it.url == message.content }) {
+                        Text(message.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            lineHeight = 20.sp,
+                        )
                     }
                 }
 
                 Row(
-                    Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    if (onReply != null) {
-                        IconButton(
-                            onClick = onReply,
-                            modifier = Modifier.size(48.dp)
-                                .semantics { contentDescription = "Ответить на сообщение" },
-                        ) {
-                            Text("↩", fontSize = 22.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
+                    Text(
+                        messageTime(message.createdAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (own) {
-                        Text(if (message.isRead) "✓✓ Прочитано" else "✓ Отправлено",
+                        Text(
+                            if (message.isRead) "✓✓" else "✓",
+                            modifier = Modifier.semantics {
+                                contentDescription = if (message.isRead) "Прочитано" else "Отправлено"
+                            },
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 }
             }
         }
+        if (!own) ReplyAction()
     }
 }
 
