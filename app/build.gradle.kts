@@ -83,6 +83,16 @@ android {
                 signingConfig = signingConfigs.getByName("deviceQa")
             }
         }
+        // Disposable smoke-test build uses a THIRD package name, so it never
+        // overwrites an existing release or debug install on a user's phone.
+        // Its runner-generated debug signature is intentionally NOT stable.
+        create("ci") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".ci"
+            versionNameSuffix = "-ci"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("debug")
+        }
         release {
             optimization {
                 enable = true
