@@ -553,7 +553,7 @@ class PubChatApi(
 
     fun enableNativePushMessages() {
         request("PATCH", "/notifications/v1/message-preferences",
-            JSONObject().put("native_push_messenger", true))
+            JSONObject().put("native_push_messenger", true).put("native_push_space", true))
     }
 
     fun removeNativePush(installationUid: String) {
