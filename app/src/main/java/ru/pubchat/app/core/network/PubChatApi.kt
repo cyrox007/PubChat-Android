@@ -452,19 +452,19 @@ class PubChatApi(
         parseIdentity(JSONObject(request("POST", "/identity/v2/personas/$uid/activate").body), null)
 
     /** Separate from login device-id; Account-scoped public crypto identity only. */
-    fun registerCryptoDevice(material: CryptoDeviceMaterial): CryptoDeviceSnapshot {
+    internal fun registerCryptoDevice(material: CryptoDeviceMaterial): CryptoDeviceSnapshot {
         val body = request("POST", "/crypto/v1/devices", material.registrationPayload()).body
         return parseCryptoDeviceResponse(body, material).also {
             check(!it.revoked) { "Сервер вернул отозванное криптографическое устройство" }
         }
     }
 
-    fun ownCryptoDevice(material: CryptoDeviceMaterial): CryptoDeviceSnapshot? {
+    internal fun ownCryptoDevice(material: CryptoDeviceMaterial): CryptoDeviceSnapshot? {
         val body = request("GET", "/crypto/v1/devices").body
         return parseOwnCryptoDeviceList(body, material)
     }
 
-    fun revokeCryptoDevice(material: CryptoDeviceMaterial) {
+    internal fun revokeCryptoDevice(material: CryptoDeviceMaterial) {
         val body = request("DELETE", "/crypto/v1/devices/${material.deviceUid}").body
         parseCryptoRevocation(body, material.deviceUid)
     }
