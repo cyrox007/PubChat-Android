@@ -35,17 +35,16 @@ class PubChatFirebaseService : FirebaseMessagingService() {
         val manager = getSystemService(NotificationManager::class.java)
         // Intent data is validated as a UUID; the push sender cannot open an
         // arbitrary web URL or override the destination with untrusted text.
-        val roomUid = message.data["room_uid"]
-            ?.takeIf { spaceReply && runCatching { java.util.UUID.fromString(it) }.isSuccess }
+        val destination = nativePushDestination(message.data["type"], message.data["room_uid"])
         val target = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            if (roomUid != null) {
+            if (destination != null && !incomingCall) {
                 action = Intent.ACTION_VIEW
-                data = android.net.Uri.parse("pubchat://spaces/$roomUid")
+                data = android.net.Uri.parse(destination)
             }
         }
         val pending = PendingIntent.getActivity(
-            this, roomUid?.hashCode() ?: 0, target,
+            this, destination?.hashCode() ?: 0, target,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val callUid = message.data["call_uid"]?.takeIf { runCatching { java.util.UUID.fromString(it) }.isSuccess }
