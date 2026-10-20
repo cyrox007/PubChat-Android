@@ -37,6 +37,14 @@
 
 **Состояние на 20.10.2026: PLANNED, не native code.** Android должен использовать единый backend API и серверную приватность/quota, без собственных несогласованных реализаций и без повторного написания уже готовой регистрации криптоустройств. UI — Compose, touch/stylus graffiti, mobile reels/player, upload progress, retry/offline, реальные устройства. [Паритет и QA #142](https://github.com/cyrox007/PubChat/issues/142). Security P0 E2EE/Safety Center сохраняет приоритет.
 
+## Ожидаемая Unified Moderation v2 (новый план, не реализовано)
+
+[PubChat #144](https://github.com/cyrox007/PubChat/issues/144), [ТЗ](https://github.com/cyrox007/PubChat/blob/main/docs/unified-content-moderation-v2.md): общая серверная цензура нецензурных выражений/запрещённых фраз, словоформ и вариаций, маскировка/отказ до отправки. Android получает server-confirmed error/masked-preview, **не придумывает собственный обходной parser**. Compose report action на каждом Space/DM сообщении, личном посте, комментарии, фото, граффити, Story и Reel; категория, подтверждение, история обращения, загрузка/ошибка/повтор.
+
+[Контекст жалобы #147](https://github.com/cyrox007/PubChat/issues/147) — выбранное сообщение и ограниченные разрешённые соседние; **plaintext DM** только по case + отдельному moderation permission. [E2EE evidence #148](https://github.com/cyrox007/PubChat/issues/148) — Android может попросить пользователя **явно выбрать и раскрыть** уже локально расшифрованное сообщение/фрагмент; server-side E2EE scanning/hidden decryption **невозможны**. E2EE crypto sessions/send/decrypt остаются незавершёнными [Android #61](https://github.com/cyrox007/PubChat-Android/issues/61), поэтому disclosure UI не считать готовым раньше криптографической реализации.
+
+Будущие фото/посты/музыка/видео/Stories/Reels [media scan #149](https://github.com/cyrox007/PubChat/issues/149), AI triage [#150](https://github.com/cyrox007/PubChat/issues/150), модераторский UX [#151](https://github.com/cyrox007/PubChat/issues/151), Web/Android/iOS acceptance [#152](https://github.com/cyrox007/PubChat/issues/152) до public media release. Существующий `/trust-safety/v1/reports` уже поддерживает `space_message/messenger_message` в backend, но **не объявлять Android full report/context UI реализованным** без реальной проверки. Приоритетные Safety Center/E2EE gates сохраняются.
+
 ## Следующая функциональная очередь
 
 1. **Space invitations acceptance (P0):** [Android #56](https://github.com/cyrox007/PubChat-Android/pull/56) реализует inbox, page, accept/decline и подтверждённый вход. Осталось: Android physical QA (expired/revoked/block/private/invite-only), Web↔Android parity, затем iOS клиент. Не начинать код UI/API заново.
