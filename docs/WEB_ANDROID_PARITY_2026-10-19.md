@@ -31,6 +31,12 @@
 - **Friendships / Multi-Persona / live availability:** code exists across clients в соответствующих срезах, но публичный Multi-Persona, cross-account leakage QA и acceptance ещё не закрыты.
 - **Messenger E2EE:** наличие plaintext composer не означает безопасный DM в условиях `required`. Не маркировать безопасность Messenger зелёной до криптографической реализации и проверок.
 
+## Запланированный Social Content / Media (не реализовано)
+
+Новый [PubChat Epic #134](https://github.com/cyrox007/PubChat/issues/134) и [Social Content & Media v1](https://github.com/cyrox007/PubChat/blob/main/docs/social-content-media-platform-v1.md) вводят личную стену/ленту (текст, фото, смешанные посты), встроенное **граффити с рисовалкой**, видео/музыку, **24-часовые Stories** и **Reels/клипы**. Обязательная база — **S3-compatible MediaService с глобальной и per-Account квотой**, которой разделяют все Persona: [storage #135](https://github.com/cyrox007/PubChat/issues/135) → [posts #136](https://github.com/cyrox007/PubChat/issues/136) → [feed #137](https://github.com/cyrox007/PubChat/issues/137), затем [graffiti #138](https://github.com/cyrox007/PubChat/issues/138), [video/music #139](https://github.com/cyrox007/PubChat/issues/139), [Stories #140](https://github.com/cyrox007/PubChat/issues/140), [Reels #141](https://github.com/cyrox007/PubChat/issues/141).
+
+**Состояние на 20.10.2026: PLANNED, не native code.** Android должен использовать единый backend API и серверную приватность/quota, без собственных несогласованных реализаций и без повторного написания уже готовой регистрации криптоустройств. UI — Compose, touch/stylus graffiti, mobile reels/player, upload progress, retry/offline, реальные устройства. [Паритет и QA #142](https://github.com/cyrox007/PubChat/issues/142). Security P0 E2EE/Safety Center сохраняет приоритет.
+
 ## Следующая функциональная очередь
 
 1. **Space invitations acceptance (P0):** [Android #56](https://github.com/cyrox007/PubChat-Android/pull/56) реализует inbox, page, accept/decline и подтверждённый вход. Осталось: Android physical QA (expired/revoked/block/private/invite-only), Web↔Android parity, затем iOS клиент. Не начинать код UI/API заново.
