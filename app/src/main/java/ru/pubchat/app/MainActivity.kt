@@ -2,6 +2,7 @@ package ru.pubchat.app
 
 import android.Manifest
 import ru.pubchat.app.core.push.FcmRegistration
+import ru.pubchat.app.core.push.PubChatNotificationChannels
 import android.content.Intent
 import android.os.Build
 import android.net.Uri
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PubChatNotificationChannels.install(applicationContext)
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 3001)
