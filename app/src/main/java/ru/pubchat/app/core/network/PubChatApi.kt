@@ -3,6 +3,11 @@ package ru.pubchat.app.core.network
 import org.json.JSONArray
 import org.json.JSONObject
 import ru.pubchat.app.BuildConfig
+import ru.pubchat.app.core.crypto.CryptoDeviceMaterial
+import ru.pubchat.app.core.crypto.CryptoDeviceSnapshot
+import ru.pubchat.app.core.crypto.parseCryptoDeviceResponse
+import ru.pubchat.app.core.crypto.parseOwnCryptoDeviceList
+import ru.pubchat.app.core.crypto.parseCryptoRevocation
 import ru.pubchat.app.core.space.SpaceCreationDraft
 import java.net.HttpURLConnection
 import java.net.URL
@@ -445,6 +450,24 @@ class PubChatApi(
 
     fun activatePersona(uid: String): Identity =
         parseIdentity(JSONObject(request("POST", "/identity/v2/personas/$uid/activate").body), null)
+
+    /** Separate from login device-id; Account-scoped public crypto identity only. */
+    internal fun registerCryptoDevice(material: CryptoDeviceMaterial): CryptoDeviceSnapshot {
+        val body = request("POST", "/crypto/v1/devices", material.registrationPayload()).body
+        return parseCryptoDeviceResponse(body, material).also {
+            check(!it.revoked) { "Сервер вернул отозванное криптографическое устройство" }
+        }
+    }
+
+    internal fun ownCryptoDevice(material: CryptoDeviceMaterial): CryptoDeviceSnapshot? {
+        val body = request("GET", "/crypto/v1/devices").body
+        return parseOwnCryptoDeviceList(body, material)
+    }
+
+    internal fun revokeCryptoDevice(material: CryptoDeviceMaterial) {
+        val body = request("DELETE", "/crypto/v1/devices/${material.deviceUid}").body
+        parseCryptoRevocation(body, material.deviceUid)
+    }
 
     fun messengerEncryption(peerUid: String): MessengerEncryptionStatus {
         require(peerUid.matches(Regex("^[0-9a-fA-F-]{36}$"))) { "Некорректный собеседник" }

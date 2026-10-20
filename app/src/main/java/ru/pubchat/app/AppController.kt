@@ -15,6 +15,9 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.crypto.CryptoDeviceMaterial
+import ru.pubchat.app.core.crypto.CryptoDeviceSnapshot
+import ru.pubchat.app.core.crypto.CryptoDeviceStore
 import ru.pubchat.app.core.network.MessengerEncryptionStatus
 import ru.pubchat.app.core.network.requirePlaintextMessengerTransport
 import ru.pubchat.app.core.network.SpaceInvitationPage
@@ -50,6 +53,7 @@ sealed interface AppState {
 class AppController(context: Context) {
     private val appContext = context.applicationContext
     private val session = SessionStore(appContext)
+    private val cryptoDeviceStore = CryptoDeviceStore(appContext)
     private val api = PubChatApi(
         deviceUid = { session.deviceUid },
         accessToken = { session.accessToken() },
@@ -712,6 +716,65 @@ class AppController(context: Context) {
                     }
                 }
                 .onFailure { error -> main.post { onResult(false, messengerEncryptionError(error)) } }
+        }
+    }
+
+    /**
+     * Explicit crypto-device preparation, never auto-invoked during login.
+     * Identity is persisted before the first request, so network retries reuse
+     * exactly the same immutable device UID and signing/X25519 keys.
+     */
+    fun prepareCryptoDevice(
+        accountUid: String,
+        onResult: (CryptoDeviceSnapshot?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                val material = cryptoDeviceStore.read(accountUid)
+                    ?: CryptoDeviceMaterial.generate(accountUid).also(cryptoDeviceStore::save)
+                authenticated { api.registerCryptoDevice(material) }
+            }
+                .onSuccess { snapshot -> main.post { onResult(snapshot, null) } }
+                .onFailure { error -> main.post {
+                    onResult(null, error.message ?: "Не удалось зарегистрировать криптографическое устройство")
+                } }
+        }
+    }
+
+    fun localCryptoDeviceStatus(
+        accountUid: String,
+        onResult: (CryptoDeviceSnapshot?, Boolean, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                val material = cryptoDeviceStore.read(accountUid)
+                    ?: return@runCatching Pair<CryptoDeviceSnapshot?, Boolean>(null, false)
+                Pair(authenticated { api.ownCryptoDevice(material) }, true)
+            }
+                .onSuccess { (remote, local) -> main.post { onResult(remote, local, null) } }
+                .onFailure { error -> main.post {
+                    // Do not confuse network failure with a missing or revoked remote device.
+                    onResult(null, true, error.message ?: "Не удалось проверить устройство")
+                } }
+        }
+    }
+
+    fun revokeCryptoDevice(
+        accountUid: String,
+        onResult: (Boolean, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                val material = cryptoDeviceStore.read(accountUid)
+                    ?: error("Локальные ключи отсутствуют")
+                authenticated { api.revokeCryptoDevice(material) }
+                // Server-confirmed revocation is the required first step.
+                cryptoDeviceStore.clearAfterServerRevocation(accountUid)
+            }
+                .onSuccess { main.post { onResult(true, null) } }
+                .onFailure { error -> main.post {
+                    onResult(false, error.message ?: "Не удалось отозвать устройство")
+                } }
         }
     }
 

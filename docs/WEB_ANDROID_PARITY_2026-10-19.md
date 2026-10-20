@@ -16,7 +16,7 @@
 | **Space invitations: inbox → принять/отклонить → открыть** | Web + API | **[PR #56](https://github.com/cyrox007/PubChat-Android/pull/56), merge `07cae34`: код слит, обе конфигурации CI green**; физическая приёмка отдельно | Требуется реальный Android QA и Web↔Android revoked/expired/blocked parity |
 | Space Activities, повторы, напоминания | Web + API | Часть событий room panel | Нативный полноценный сценарий, server timezone |
 | Messenger текст и действия | Web + API | Базовый Messenger | Поведение отказов и network QA |
-| **Messenger native E2EE** | Web security policy/API | **Нет нативной криптографии/device verification**. Защитный этап: API-проверка effective mode перед каждым plaintext send/reply/edit/forward, deny-UI/unknown fail-closed | **P0 security:** полноценное native E2EE, кросс-клиентные ключи, device verification/rotations и реальные тесты |
+| **Messenger native E2EE** | Web security policy + `crypto/v1` | **Device identity foundation** (this PR): Ed25519/X25519/signed prekeys, Android Keystore persistence, explicit registration/list/revoke. **No native encrypted send/decrypt or peer verification**. Legacy no-downgrade [#58](https://github.com/cyrox007/PubChat-Android/pull/58) merged | **P0 security:** sessions/envelopes, peer trust, multi-device, decrypt, attachments, physical interoperability and security review |
 | **Safety Center / reports / appeals** | Web + Trust & Safety API | **Нет полноценного сценария** | **P0 safety** |
 | Устройства, отзыв сессий | Web + Identity API | Нет полного editor | P1 |
 | Уведомления | Web + preferences | Notification center, FCM foundation | P1 preference editor + реальный FCM |
