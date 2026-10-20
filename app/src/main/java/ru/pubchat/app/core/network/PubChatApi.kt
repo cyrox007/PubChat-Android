@@ -446,6 +446,12 @@ class PubChatApi(
     fun activatePersona(uid: String): Identity =
         parseIdentity(JSONObject(request("POST", "/identity/v2/personas/$uid/activate").body), null)
 
+    fun messengerEncryption(peerUid: String): MessengerEncryptionStatus {
+        require(peerUid.matches(Regex("^[0-9a-fA-F-]{36}$"))) { "Некорректный собеседник" }
+        val response = request("GET", "/messenger/conversations/$peerUid/encryption").body
+        return parseMessengerEncryptionStatus(response)
+    }
+
     fun dialogs(): List<DialogSummary> {
         val root = JSONObject(request("GET", "/messenger/dialogs").body)
         val items = root.optJSONArray("dialogs") ?: JSONArray()
