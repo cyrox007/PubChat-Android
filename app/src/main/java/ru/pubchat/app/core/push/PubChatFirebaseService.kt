@@ -42,6 +42,11 @@ class PubChatFirebaseService : FirebaseMessagingService() {
             if (roomUid != null) {
                 action = Intent.ACTION_VIEW
                 data = android.net.Uri.parse("pubchat://spaces/$roomUid")
+            } else if (!incomingCall) {
+                // Push body has no private peer id: navigate to the authenticated
+                // inbox, not an invented conversation or the public landing page.
+                action = Intent.ACTION_VIEW
+                data = android.net.Uri.parse("pubchat://inbox")
             }
         }
         val pending = PendingIntent.getActivity(
