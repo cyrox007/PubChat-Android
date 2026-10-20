@@ -33,7 +33,7 @@ internal class CryptoDeviceStore(context: Context) {
         return AtomicFile(File(app.noBackupFilesDir, "crypto_device_v1_$hash.bin"))
     }
 
-    fun hasLocalIdentity(accountUid: String): Boolean = file(accountUid).baseFile.exists()
+    fun hasLocalIdentity(accountUid: String): Boolean = file(accountUid).baseFile.exists() || File(file(accountUid).baseFile.path + ".bak").exists()
 
     private fun wrappingKey(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -52,7 +52,7 @@ internal class CryptoDeviceStore(context: Context) {
 
     fun read(accountUid: String): CryptoDeviceMaterial? {
         val target = file(accountUid)
-        if (!target.baseFile.exists()) return null
+        if (!target.baseFile.exists() && !File(target.baseFile.path + ".bak").exists()) return null
         val record = JSONObject(String(target.readFully(), Charsets.UTF_8))
         require(record.getInt("version") == 1) { "Неизвестная версия локального хранилища ключей" }
         val nonce = CryptoV1.parseB64(record.getString("iv"), 12)
@@ -72,7 +72,7 @@ internal class CryptoDeviceStore(context: Context) {
 
     fun save(material: CryptoDeviceMaterial) {
         val target = file(material.accountUid)
-        check(!target.baseFile.exists()) { "Криптографическая идентичность уже существует: перезапись запрещена" }
+        check(!target.baseFile.exists() && !File(target.baseFile.path + ".bak").exists()) { "Криптографическая идентичность уже существует: перезапись запрещена" }
         val plaintext = material.privateBytes()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val ciphertext = try {
