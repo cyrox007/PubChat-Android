@@ -692,6 +692,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     section = AppSection.MESSENGER
                     loadDialogsAndConnect(deepLink.uid)
                 }
+                "inbox" -> {
+                    section = AppSection.MESSENGER
+                    loadDialogsAndConnect()
+                }
             }
             onDeepLinkConsumed()
         }
