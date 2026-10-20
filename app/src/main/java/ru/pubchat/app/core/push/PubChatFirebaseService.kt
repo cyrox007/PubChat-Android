@@ -25,19 +25,27 @@ class PubChatFirebaseService : FirebaseMessagingService() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
         val incomingCall = message.data["type"] == "call"
-        val channel = if (incomingCall) CALL_CHANNEL else CHANNEL
+        val spaceReply = message.data["type"] == "space_reply"
+        PubChatNotificationChannels.install(this)
+        val channel = when {
+            incomingCall -> PubChatNotificationChannels.CALL
+            spaceReply -> PubChatNotificationChannels.SPACE_REPLY
+            else -> PubChatNotificationChannels.MESSENGER
+        }
         val manager = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) {
-            manager.createNotificationChannel(NotificationChannel(
-                channel,
-                if (incomingCall) "Входящие звонки PubChat" else "Сообщения PubChat",
-                if (incomingCall) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT
-            ))
+        // Intent data is validated as a UUID; the push sender cannot open an
+        // arbitrary web URL or override the destination with untrusted text.
+        val roomUid = message.data["room_uid"]
+            ?.takeIf { spaceReply && runCatching { java.util.UUID.fromString(it) }.isSuccess }
+        val target = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            if (roomUid != null) {
+                action = Intent.ACTION_VIEW
+                data = android.net.Uri.parse("pubchat://spaces/$roomUid")
+            }
         }
         val pending = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            },
+            this, roomUid?.hashCode() ?: 0, target,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val callUid = message.data["call_uid"]?.takeIf { runCatching { java.util.UUID.fromString(it) }.isSuccess }
@@ -54,8 +62,8 @@ class PubChatFirebaseService : FirebaseMessagingService() {
         }
         val notification = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(if (incomingCall) "Входящий звонок PubChat" else "Новое сообщение в PubChat")
-            .setContentText(if (incomingCall) "Откройте приложение, чтобы ответить." else "У вас есть новое сообщение.")
+            .setContentTitle(when { incomingCall -> "Входящий звонок PubChat"; spaceReply -> "Ответ в пространстве PubChat"; else -> "Новое личное сообщение PubChat" })
+            .setContentText(when { incomingCall -> "Откройте приложение, чтобы ответить."; spaceReply -> "Ответили на ваше сообщение."; else -> "У вас есть новое личное сообщение." })
             .setCategory(if (incomingCall) NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(if (incomingCall) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
@@ -81,7 +89,6 @@ class PubChatFirebaseService : FirebaseMessagingService() {
     }
 
     companion object {
-        private const val CHANNEL = "pubchat_messages"
-        private const val CALL_CHANNEL = "pubchat_incoming_calls"
+        
     }
 }

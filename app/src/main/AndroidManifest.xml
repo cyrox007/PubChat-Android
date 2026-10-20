@@ -23,6 +23,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PubChat"
         android:usesCleartextTraffic="false">
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="pubchat_messages_chime_v2" />
         <service
             android:name=".core.calls.CallForegroundService"
             android:exported="false"
