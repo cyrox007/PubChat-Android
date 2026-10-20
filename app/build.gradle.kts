@@ -122,6 +122,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Raw Ed25519/X25519 portable on minSdk 26; never use mutable Android platform BC provider.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.80")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.google.firebase:firebase-messaging:24.1.2")
     implementation("io.github.webrtc-sdk:android:125.6422.07")
