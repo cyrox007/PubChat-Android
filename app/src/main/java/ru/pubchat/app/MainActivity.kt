@@ -21,6 +21,9 @@ fun parsePubChatDeepLink(uri: Uri?): PubChatDeepLink? {
     val parts = uri.pathSegments
     val kind: String
     val uid: String
+    if (scheme == "pubchat" && uri.host?.lowercase() == "inbox" && parts.isEmpty() && uri.query == null) {
+        return PubChatDeepLink("inbox", "")
+    }
     if (scheme == "pubchat") {
         kind = uri.host?.lowercase() ?: return null
         uid = parts.firstOrNull() ?: return null
