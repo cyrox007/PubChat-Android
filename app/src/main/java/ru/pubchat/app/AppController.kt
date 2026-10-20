@@ -15,6 +15,8 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.network.MessengerEncryptionStatus
+import ru.pubchat.app.core.network.requirePlaintextMessengerTransport
 import ru.pubchat.app.core.network.SpaceInvitationPage
 import ru.pubchat.app.core.network.SpaceInvitationDecision
 import ru.pubchat.app.core.network.invitationErrorMessage
@@ -683,14 +685,63 @@ class AppController(context: Context) {
         return messengerRealtime?.requestConversation(peerUid) == true
     }
 
-    fun sendPrivateMessage(peerUid: String, content: String): Boolean {
-        if (content.isBlank()) return false
-        return messengerRealtime?.sendMessage(peerUid, content) == true
+    /** Every plaintext send rechecks the server policy. Reconnect, peer switch and policy changes fail closed. */
+    fun sendPrivateMessage(
+        peerUid: String,
+        content: String,
+        onResult: (Boolean, String?) -> Unit,
+    ) {
+        if (content.isBlank()) {
+            onResult(false, "Введите сообщение")
+            return
+        }
+        val currentEpoch = messengerEpoch
+        val currentSubscription = messengerSubscription
+        executor.execute {
+            runCatching { checkedPlaintextMessenger(peerUid) }
+                .onSuccess {
+                    main.post {
+                        if (currentEpoch != messengerEpoch || messengerSubscription !== currentSubscription ||
+                            currentSubscription?.activePeerUid != peerUid || messengerStatus != "connected"
+                        ) {
+                            onResult(false, "Диалог изменился или соединение прервалось. Повторите отправку.")
+                        } else {
+                            val queued = messengerRealtime?.sendMessage(peerUid, content) == true
+                            onResult(queued, if (queued) null else "Соединение ещё не готово. Сообщение не отправлено.")
+                        }
+                    }
+                }
+                .onFailure { error -> main.post { onResult(false, messengerEncryptionError(error)) } }
+        }
+    }
+
+    fun loadMessengerEncryption(peerUid: String, onResult: (MessengerEncryptionStatus?, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.messengerEncryption(peerUid) } }
+                .onSuccess { status -> main.post { onResult(status, null) } }
+                .onFailure { error -> main.post { onResult(null, messengerEncryptionError(error)) } }
+        }
+    }
+
+    private fun checkedPlaintextMessenger(peerUid: String) {
+        val policy = authenticated { api.messengerEncryption(peerUid) }
+        requirePlaintextMessengerTransport(policy)
+    }
+
+    private fun messengerEncryptionError(error: Throwable): String = when (error) {
+        is PubChatApi.ApiFailure -> when (error.code) {
+            401 -> "Сессия истекла. Повторно войдите в PubChat."
+            403, 404 -> "Диалог недоступен: блокировка или ограничение приватности."
+            else -> "Не удалось проверить шифрование на сервере (HTTP ${error.code}). Отправка заблокирована."
+        }
+        else -> error.message?.takeIf { it.isNotBlank() }
+            ?: "Не удалось проверить политику шифрования. Отправка заблокирована."
     }
 
     fun markPrivateRead(messageUid: String): Boolean = messengerRealtime?.markRead(messageUid) == true
 
-    fun editPrivateMessage(messageUid: String, content: String, onDone: (String?) -> Unit) = messengerAction(onDone) {
+    fun editPrivateMessage(peerUid: String, messageUid: String, content: String, onDone: (String?) -> Unit) = messengerAction(onDone) {
+        checkedPlaintextMessenger(peerUid)
         api.editPrivateMessage(messageUid, content)
     }
 
@@ -698,13 +749,13 @@ class AppController(context: Context) {
         api.deletePrivateMessage(messageUid)
     }
 
-    fun replyPrivateMessage(messageUid: String, content: String, onDone: (PubChatApi.ChatMessage?, String?) -> Unit) {
+    fun replyPrivateMessage(peerUid: String, messageUid: String, content: String, onDone: (PubChatApi.ChatMessage?, String?) -> Unit) {
         if (content.isBlank()) {
             onDone(null, "Введите текст ответа")
             return
         }
         executor.execute {
-            runCatching { authenticated { api.replyPrivateMessage(messageUid, content) } }
+            runCatching { checkedPlaintextMessenger(peerUid); authenticated { api.replyPrivateMessage(messageUid, content) } }
                 .onSuccess { created -> main.post { onDone(created, null) } }
                 .onFailure { error -> main.post { onDone(null, humanMessage(error)) } }
         }
@@ -715,6 +766,7 @@ class AppController(context: Context) {
     }
 
     fun forwardPrivateMessage(messageUid: String, targetPeerUid: String, onDone: (String?) -> Unit) = messengerAction(onDone) {
+        checkedPlaintextMessenger(targetPeerUid)
         api.forwardPrivateMessage(messageUid, targetPeerUid)
     }
 

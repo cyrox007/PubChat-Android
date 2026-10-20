@@ -82,6 +82,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.network.MessengerEncryptionStatus
 import ru.pubchat.app.ui.components.SocialAvailabilityControls
 import ru.pubchat.app.ui.components.FriendshipHubContent
 import ru.pubchat.app.ui.components.PubChatEmptyState
@@ -400,6 +401,11 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var conversations by remember { mutableStateOf<Map<String, List<PubChatApi.ChatMessage>>>(emptyMap()) }
     var onlineStatuses by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var dmDraft by remember { mutableStateOf("") }
+    var dmSending by remember { mutableStateOf(false) }
+    var dmEncryption by remember { mutableStateOf<MessengerEncryptionStatus?>(null) }
+    var dmEncryptionLoading by remember { mutableStateOf(false) }
+    var dmEncryptionError by remember { mutableStateOf<String?>(null) }
+    var dmEncryptionGeneration by remember { mutableStateOf(0) }
     var selectedMessageUid by remember { mutableStateOf<String?>(null) }
     var actionMode by remember { mutableStateOf<String?>(null) }
     var actionDraft by remember { mutableStateOf("") }
@@ -656,6 +662,24 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         dmDraft = ""
         section = AppSection.MESSENGER_CHAT
         if (messengerConnection == "connected") controller.requestConversation(dialog.partnerUid) else connectMessenger(dialog.partnerUid)
+    }
+
+    fun checkMessengerEncryption(peerUid: String) {
+        val generation = ++dmEncryptionGeneration
+        dmEncryption = null
+        dmEncryptionError = null
+        dmEncryptionLoading = true
+        controller.loadMessengerEncryption(peerUid) { status, failure ->
+            if (generation == dmEncryptionGeneration && activeDialog?.partnerUid == peerUid) {
+                dmEncryption = status
+                dmEncryptionError = failure
+                dmEncryptionLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(activeDialog?.partnerUid) {
+        activeDialog?.partnerUid?.let(::checkMessengerEncryption)
     }
 
     LaunchedEffect(deepLink) {
@@ -1003,6 +1027,11 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     currentAccountUid = state.accountUid,
                     connection = messengerConnection,
                     error = messengerError,
+                    encryption = dmEncryption,
+                    encryptionLoading = dmEncryptionLoading,
+                    encryptionError = dmEncryptionError,
+                    sending = dmSending,
+                    onEncryptionRetry = { activeDialog?.partnerUid?.let(::checkMessengerEncryption) },
                     draft = dmDraft,
                     onDraft = { dmDraft = it },
                     selectedUid = selectedMessageUid,
@@ -1013,7 +1042,19 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onActionDraft = { actionDraft = it },
                     onSend = {
                         val peer = activeDialog?.partnerUid
-                        if (peer != null && controller.sendPrivateMessage(peer, dmDraft)) dmDraft = "" else messengerError = "Личные сообщения ещё переподключаются"
+                        val sentText = dmDraft
+                        if (peer != null && sentText.isNotBlank() && !dmSending) {
+                            dmSending = true
+                            messengerError = null
+                            controller.sendPrivateMessage(peer, sentText) { queued, failure ->
+                                dmSending = false
+                                if (activeDialog?.partnerUid == peer) {
+                                    messengerError = failure
+                                    if (queued && dmDraft == sentText) dmDraft = ""
+                                    if (!queued) checkMessengerEncryption(peer)
+                                }
+                            }
+                        }
                     },
                     onAction = { action ->
                         val uid = selectedMessageUid ?: return@MessengerChatContent
@@ -1023,7 +1064,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                                 val peerUid = activeDialog?.partnerUid
                                 val sentText = actionDraft
                                 messengerError = null
-                                controller.replyPrivateMessage(uid, sentText) { created, error ->
+                                if (peerUid == null) return@MessengerChatContent
+                                controller.replyPrivateMessage(peerUid, uid, sentText) { created, error ->
                                     messengerError = error
                                     if (created != null && peerUid != null) {
                                         conversations = conversations + (peerUid to mergeMessage(conversations[peerUid].orEmpty(), created))
@@ -1038,7 +1080,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                                     }
                                 }
                             }
-                            "edit" -> controller.editPrivateMessage(uid, actionDraft, done)
+                            "edit" -> activeDialog?.partnerUid?.let { peerUid ->
+                                controller.editPrivateMessage(peerUid, uid, actionDraft, done)
+                            } ?: run { messengerError = "Не выбран собеседник" }
                             "delete" -> controller.deletePrivateMessage(uid, done)
                             "react" -> controller.reactPrivateMessage(uid, "👍", done)
                             "forward" -> dialogs.firstOrNull { it.partnerUid != activeDialog?.partnerUid }?.let { controller.forwardPrivateMessage(uid, it.partnerUid, done) }
@@ -1636,6 +1680,11 @@ private fun MessengerChatContent(
     currentAccountUid: String,
     connection: String,
     error: String?,
+    encryption: MessengerEncryptionStatus?,
+    encryptionLoading: Boolean,
+    encryptionError: String?,
+    sending: Boolean,
+    onEncryptionRetry: () -> Unit,
     draft: String,
     onDraft: (String) -> Unit,
     selectedUid: String?,
@@ -1653,13 +1702,32 @@ private fun MessengerChatContent(
             TextButton(onClick = { onCall(false) }, enabled = dialog != null && connection == "connected") { Text("☎") }
             TextButton(onClick = { onCall(true) }, enabled = dialog != null && connection == "connected") { Text("Видео") }
         }
+        val plaintextAllowed = encryption?.canUseLegacyTransport == true
+        val sendEnabled = connection == "connected" && plaintextAllowed && !encryptionLoading && !sending
+        Text(
+            if (encryptionLoading) "Проверяем политику шифрования. Отправка приостановлена."
+            else encryptionError ?: encryption?.explanation
+                ?: "Серверная политика неизвестна: отправка заблокирована.",
+            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (sendEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+        )
+        if (encryptionError != null || (encryption == null && !encryptionLoading)) {
+            TextButton(onClick = onEncryptionRetry, modifier = Modifier.padding(horizontal = 12.dp)) {
+                Text("Повторить проверку шифрования")
+            }
+        }
         error?.let { Text(it, Modifier.padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Можно начать с простого «привет»." else "Загружаем личный разговор…") }
             items(messages, key = PubChatApi.ChatMessage::uid) { message ->
                 Column {
-                    RoomMessageCard(message, message.senderUid == currentAccountUid, messages.find { it.uid == message.replyToUid }, onSelect = { onSelect(message.uid) })
-                    if (selectedUid == message.uid) {
+                    val safeMessage = if (message.contentType == "e2ee") message.copy(
+                        content = "🔒 E2EE-сообщение: на Android расшифровка пока недоступна.",
+                        attachmentName = null, attachments = emptyList(), replyContent = null,
+                    ) else message
+                    RoomMessageCard(safeMessage, message.senderUid == currentAccountUid, null, onSelect = { onSelect(message.uid) })
+                    if (selectedUid == message.uid && message.contentType != "e2ee") {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { onActionMode("reply") }) { Text("Ответ") }
                             TextButton(onClick = { onAction("react") }) { Text("👍") }
@@ -1677,7 +1745,7 @@ private fun MessengerChatContent(
                 }
             }
         }
-        Composer(draft, onDraft, connection == "connected", onSend)
+        Composer(draft, onDraft, sendEnabled, onSend)
     }
 }
 

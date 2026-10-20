@@ -16,13 +16,15 @@
 | **Space invitations: inbox → принять/отклонить → открыть** | Web + API | **[PR #56](https://github.com/cyrox007/PubChat-Android/pull/56), merge `07cae34`: код слит, обе конфигурации CI green**; физическая приёмка отдельно | Требуется реальный Android QA и Web↔Android revoked/expired/blocked parity |
 | Space Activities, повторы, напоминания | Web + API | Часть событий room panel | Нативный полноценный сценарий, server timezone |
 | Messenger текст и действия | Web + API | Базовый Messenger | Поведение отказов и network QA |
-| **Messenger native E2EE** | Web security policy | **Нет полноценной native E2EE / device verification** | **P0 security: нет downgrade до plaintext при required E2EE** |
+| **Messenger native E2EE** | Web security policy/API | **Нет нативной криптографии/device verification**. Защитный этап: API-проверка effective mode перед каждым plaintext send/reply/edit/forward, deny-UI/unknown fail-closed | **P0 security:** полноценное native E2EE, кросс-клиентные ключи, device verification/rotations и реальные тесты |
 | **Safety Center / reports / appeals** | Web + Trust & Safety API | **Нет полноценного сценария** | **P0 safety** |
 | Устройства, отзыв сессий | Web + Identity API | Нет полного editor | P1 |
 | Уведомления | Web + preferences | Notification center, FCM foundation | P1 preference editor + реальный FCM |
 | Calls/WebRTC | Web + signaling | Частичный native WebRTC | Реальные 2×OEM, Wi-Fi/LTE, фон, ICE/TURN |
 
 ## Статус приёмки отдельно от реализации
+
+- **E2EE gate Android:** этот PR добавляет защиту от plaintext downgrade и объяснение режима переписки. Нельзя считать реализованными E2EE криптографию, клиентские ключи и расшифровку, пока они не будут реализованы и проверены на устройствах. Сервер остается окончательным enforcement.
 
 - **Space creation:** code merged, CI confirmed in PR #51; **physical Android QA ещё не подтверждён**. Не планировать создание формы/API повторно.
 - **DM consent:** code merged, обе конфигурации Android CI run [39315301247](https://github.com/cyrox007/PubChat-Android/actions/runs/39315301247) successful; **device/cross-client privacy QA остаётся**. Не создавать второй редактор policy.
