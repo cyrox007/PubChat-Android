@@ -24,7 +24,7 @@ class CryptoPeerPrekeyValidationTest {
 
     private fun directory(vararg devices: JSONObject): String = JSONObject()
         .put("status", "ok").put("account_uid", account)
-        .put("devices", JSONArray().also { rows -> devices.forEach(rows::put) })
+        .put("devices", JSONArray().also { rows -> devices.forEach { row -> rows.put(row) } })
         .toString()
 
     private fun bundle(vararg devices: JSONObject): String = JSONObject()
@@ -32,7 +32,7 @@ class CryptoPeerPrekeyValidationTest {
         .put("bundle", JSONObject()
             .put("account_uid", account)
             .put("bundle_version", "v1")
-            .put("devices", JSONArray().also { rows -> devices.forEach(rows::put) }))
+            .put("devices", JSONArray().also { rows -> devices.forEach { row -> rows.put(row) } }))
         .toString()
 
     @Test fun verifiedSignatureAndDirectoryBoundBundle() {
