@@ -464,6 +464,20 @@ class PubChatApi(
         return parseOwnCryptoDeviceList(body, material)
     }
 
+    /** Directory reads are untrusted until locally checked against a remembered checkpoint. */
+    internal fun peerCryptoDirectory(accountUid: String): String {
+        val canonical = java.util.UUID.fromString(accountUid).toString()
+        require(canonical == accountUid)
+        return request("GET", "/crypto/v1/accounts/$canonical/devices").body
+    }
+
+    /** Fetch only bounded events strictly after the previously trusted sequence. */
+    internal fun peerCryptoDirectoryHistory(accountUid: String, afterSequence: Long): String {
+        val canonical = java.util.UUID.fromString(accountUid).toString()
+        require(canonical == accountUid && afterSequence >= 1)
+        return request("GET", "/crypto/v1/accounts/$canonical/directory-history?after_sequence=$afterSequence&limit=200").body
+    }
+
     internal fun revokeCryptoDevice(material: CryptoDeviceMaterial) {
         val body = request("DELETE", "/crypto/v1/devices/${material.deviceUid}").body
         parseCryptoRevocation(body, material.deviceUid)
