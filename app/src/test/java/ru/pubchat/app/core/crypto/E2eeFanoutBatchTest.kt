@@ -37,7 +37,8 @@ class E2eeFanoutBatchTest {
         E2eeSessionLedger.validate(state, account, ownDevice)
         val afterCrash = JSONObject(state.toString())
         val retrieved = E2eeFanoutBatch.load(afterCrash, frontId)
-        assertEquals(batch.requestBody().toString(), retrieved.requestBody().toString())
+        assertEquals(batch.envelopes, retrieved.envelopes)
+        assertEquals(batch.frontId, retrieved.frontId)
         assertEquals(3, retrieved.requestBody().getJSONArray("envelopes").length())
         assertEquals(frontId, retrieved.requestBody().getString("front_id"))
         assertEquals(peerAccount, retrieved.receiverUid)
@@ -49,7 +50,7 @@ class E2eeFanoutBatchTest {
             peerAccount, ownTargets, peerTargets, "{\"type\":\"text\",\"text\":\"другое\"}".toByteArray())
         assertTrue(second.envelopes.all { it.counter == 1L })
         assertTrue(batch.envelopes.all { it.counter == 0L })
-        assertEquals(batch.requestBody().toString(), E2eeFanoutBatch.load(afterCrash, frontId).requestBody().toString())
+        assertEquals(batch.envelopes, E2eeFanoutBatch.load(afterCrash, frontId).envelopes)
         E2eeSessionLedger.validate(afterCrash, account, ownDevice)
     }
 
