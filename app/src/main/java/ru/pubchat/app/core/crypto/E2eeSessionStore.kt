@@ -140,6 +140,30 @@ internal class E2eeSessionStore(context: Context) {
             E2eeSessionLedger.reserve(state, frontId, device, recipientDevice, sessionId, plaintext)
         }
 
+    /**
+     * One durable transaction for ALL own and peer active devices. Never send
+     * partial envelopes; callers must inspect trusted directories beforehand.
+     */
+    fun prepareBatch(
+        account: String,
+        device: String,
+        frontId: String,
+        receiverUid: String,
+        ownDevices: List<E2eeFanoutBatch.Target>,
+        peerDevices: List<E2eeFanoutBatch.Target>,
+        plaintext: ByteArray,
+    ): E2eeFanoutBatch.Batch = mutate(account, device) { state ->
+        E2eeFanoutBatch.prepare(state, frontId, device, receiverUid, ownDevices, peerDevices, plaintext)
+    }
+
+    /** Always re-read the exact committed envelopes before any HTTP retry. */
+    fun pendingBatch(account: String, device: String, frontId: String): E2eeFanoutBatch.Batch =
+        synchronized(processLock) { E2eeFanoutBatch.load(read(account, device), frontId) }
+
+    /** One server ACK removes every packet of this batch in a single durable write. */
+    fun acknowledgeBatch(account: String, device: String, frontId: String): Boolean =
+        mutate(account, device) { state -> E2eeFanoutBatch.acknowledge(state, frontId) }
+
     fun pendingPackets(account: String, device: String): List<E2eeSessionLedger.PendingPacket> =
         synchronized(processLock) { E2eeSessionLedger.pending(read(account, device)) }
 
