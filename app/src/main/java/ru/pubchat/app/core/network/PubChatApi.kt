@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import ru.pubchat.app.BuildConfig
 import ru.pubchat.app.core.crypto.CryptoDeviceMaterial
+import ru.pubchat.app.core.crypto.E2eeFanoutBatch
 import ru.pubchat.app.core.crypto.CryptoDeviceSnapshot
 import ru.pubchat.app.core.crypto.parseCryptoDeviceResponse
 import ru.pubchat.app.core.crypto.parseOwnCryptoDeviceList
@@ -462,6 +463,25 @@ class PubChatApi(
     internal fun ownCryptoDevice(material: CryptoDeviceMaterial): CryptoDeviceSnapshot? {
         val body = request("GET", "/crypto/v1/devices").body
         return parseOwnCryptoDeviceList(body, material)
+    }
+
+    /**
+     * Only submit a fully committed all-device batch after current own/peer
+     * directory checks. A duplicate response is ambiguous and must NOT be
+     * treated as delivery confirmation without server history reconciliation.
+     * This method does not delete the local pending batch.
+     */
+    internal fun sendCommittedE2eeBatch(batch: E2eeFanoutBatch.Batch): JSONObject {
+        val root = JSONObject(request("POST", "/crypto/v1/messages", batch.requestBody()).body)
+        require(root.getString("status") == "ok") { "Encrypted send not accepted" }
+        if (root.optBoolean("duplicate", false)) {
+            throw IllegalStateException("Encrypted frontId already claimed: reconcile before ACK")
+        }
+        require(root.getBoolean("duplicate") == false)
+        val message = root.getJSONObject("message")
+        require(message.getString("frontId") == batch.frontId) { "Encrypted send ACK frontId mismatch" }
+        require(message.getString("content_type") == "e2ee") { "Encrypted send ACK content mismatch" }
+        return message
     }
 
     /** Directory reads are untrusted until locally checked against a remembered checkpoint. */
