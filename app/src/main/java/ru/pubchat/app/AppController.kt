@@ -93,6 +93,8 @@ class AppController(context: Context) {
         val onStatuses: (Map<String, Boolean>) -> Unit,
         val onConnection: (String) -> Unit,
         val onError: (String) -> Unit,
+        val onSendConfirmed: (String, String) -> Unit,
+        val onSendFailed: (String, String) -> Unit,
     )
 
     // Owned by Android main thread. Epochs prevent a stale ticket/socket from
@@ -598,11 +600,13 @@ class AppController(context: Context) {
         onStatuses: (Map<String, Boolean>) -> Unit,
         onConnection: (String) -> Unit,
         onError: (String) -> Unit,
+        onSendConfirmed: (String, String) -> Unit,
+        onSendFailed: (String, String) -> Unit,
     ) {
         closeMessenger()
         messengerSubscription = MessengerSubscription(
             activePeerUid, dialogUids, currentAccountUid, onConversation, onMessage,
-            onRead, onStatuses, onConnection, onError,
+            onRead, onStatuses, onConnection, onError, onSendConfirmed, onSendFailed,
         )
         messengerRetries = 0
         connectMessengerSocket(messengerEpoch)
@@ -636,13 +640,31 @@ class AppController(context: Context) {
                                 "private_message" -> {
                                     parseMessage(frame)?.let { message ->
                                         val peer = if (message.senderUid == target.currentAccountUid) message.receiverUid else message.senderUid
-                                        if (!peer.isNullOrBlank()) target.onMessage(peer, message)
+                                        if (!peer.isNullOrBlank()) {
+                                            target.onMessage(peer, message)
+                                            val frontId = frame.optString("frontId")
+                                            if (message.senderUid == target.currentAccountUid && frontId.isNotBlank()) {
+                                                target.onSendConfirmed(frontId, peer)
+                                            }
+                                        }
                                     }
                                 }
                                 "message_read" -> frame.optString("message_uid").takeIf { it.isNotBlank() }?.let(target.onRead)
                                 "status_update" -> target.onStatuses(parseStatuses(frame.optJSONObject("statuses")))
                                 "rate_limited" -> target.onError("Слишком много сообщений подряд")
-                                "error" -> target.onError(if (frame.optString("error_type") == "dm_not_allowed") "Личные сообщения этому человеку недоступны" else "Messenger действие не выполнено")
+                                "duplicate_ignored" -> frame.optString("frontId").takeIf { it.isNotBlank() }?.let {
+                                    target.onSendFailed(it, "Повтор обнаружен сервером. Проверьте историю перед повторной отправкой.")
+                                }
+                                "error" -> {
+                                    val reason = when (frame.optString("error_type")) {
+                                        "dm_not_allowed" -> "Личные сообщения этому человеку недоступны"
+                                        "conversation_requires_e2ee" -> "Для этого диалога требуется E2EE"
+                                        else -> "Messenger действие не выполнено"
+                                    }
+                                    frame.optString("frontId").takeIf { it.isNotBlank() }?.let {
+                                        target.onSendFailed(it, reason)
+                                    } ?: target.onError(reason)
+                                }
                             }
                         } },
                         onState = { status -> main.post {
@@ -693,10 +715,11 @@ class AppController(context: Context) {
     fun sendPrivateMessage(
         peerUid: String,
         content: String,
+        frontId: String,
         onResult: (Boolean, String?) -> Unit,
     ) {
-        if (content.isBlank()) {
-            onResult(false, "Введите сообщение")
+        if (content.isBlank() || frontId.isBlank()) {
+            onResult(false, "Введите сообщение и идентификатор отправки")
             return
         }
         val currentEpoch = messengerEpoch
@@ -710,7 +733,7 @@ class AppController(context: Context) {
                         ) {
                             onResult(false, "Диалог изменился или соединение прервалось. Повторите отправку.")
                         } else {
-                            val queued = messengerRealtime?.sendMessage(peerUid, content) == true
+                            val queued = messengerRealtime?.sendMessage(peerUid, content, frontId) == true
                             onResult(queued, if (queued) null else "Соединение ещё не готово. Сообщение не отправлено.")
                         }
                     }
