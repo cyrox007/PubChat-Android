@@ -31,7 +31,7 @@ class E2eeSessionLedgerTest {
         assertEquals(1L, next.counter)
         assertNotEquals(packet.nonce, next.nonce)
         assertNotEquals(packet.ciphertext, next.ciphertext)
-        assertEquals(packet, E2eeSessionLedger.pending(restored).first())
+        assertEquals(packet, E2eeSessionLedger.pending(restored).single { it.frontId == id })
         assertThrows(Exception::class.java) {
             E2eeSessionLedger.reserve(restored, id, sender, recipient, session, byteArrayOf(1))
         }
