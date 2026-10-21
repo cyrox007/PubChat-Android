@@ -18,6 +18,9 @@ import ru.pubchat.app.core.network.PubChatApi
 import ru.pubchat.app.core.crypto.CryptoDeviceMaterial
 import ru.pubchat.app.core.crypto.CryptoDeviceSnapshot
 import ru.pubchat.app.core.crypto.CryptoDeviceStore
+import ru.pubchat.app.core.crypto.PeerDirectoryContinuity
+import ru.pubchat.app.core.crypto.PeerDirectoryTrustStore
+import ru.pubchat.app.core.crypto.PeerDirectoryInspection
 import ru.pubchat.app.core.network.MessengerEncryptionStatus
 import ru.pubchat.app.core.network.requirePlaintextMessengerTransport
 import ru.pubchat.app.core.network.SpaceInvitationPage
@@ -54,6 +57,7 @@ class AppController(context: Context) {
     private val appContext = context.applicationContext
     private val session = SessionStore(appContext)
     private val cryptoDeviceStore = CryptoDeviceStore(appContext)
+    private val peerDirectoryTrustStore = PeerDirectoryTrustStore(appContext)
     private val api = PubChatApi(
         deviceUid = { session.deviceUid },
         accessToken = { session.accessToken() },
@@ -747,6 +751,59 @@ class AppController(context: Context) {
      * Identity is persisted before the first request, so network retries reuse
      * exactly the same immutable device UID and signing/X25519 keys.
      */
+    /** Inspect peer directory before future encrypted sends; never implies a verified safety number. */
+    internal fun inspectPeerDirectory(
+        ownerUid: String,
+        peerUid: String,
+        onResult: (PeerDirectoryInspection?, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                val previous = peerDirectoryTrustStore.read(ownerUid, peerUid)
+                val response = authenticated { api.peerCryptoDirectory(peerUid) }
+                val root = JSONObject(response)
+                val currentSequence = PeerDirectoryContinuity.checkpoint(root.getJSONObject("directory_checkpoint")).sequence
+                val history = if (previous != null && currentSequence > previous.checkpoint.sequence) {
+                    authenticated { api.peerCryptoDirectoryHistory(peerUid, previous.checkpoint.sequence) }
+                } else null
+                val inspection = PeerDirectoryContinuity.inspect(response, history, peerUid, previous)
+                if (!inspection.requiresAcknowledgement) {
+                    peerDirectoryTrustStore.save(ownerUid, PeerDirectoryContinuity.trust(peerUid, inspection))
+                }
+                inspection
+            }.onSuccess { inspection -> main.post { onResult(inspection, null) } }
+                .onFailure { error -> main.post { onResult(null, "Каталог ключей не подтверждён: " + (error.message ?: "проверка не пройдена")) } }
+        }
+    }
+
+    /** Call ONLY after explicit user acknowledgement; does not mark a safety number verified. */
+    internal fun acknowledgePeerDirectoryChange(
+        ownerUid: String,
+        peerUid: String,
+        displayed: PeerDirectoryInspection,
+        onResult: (Boolean, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                require(displayed.requiresAcknowledgement) { "No directory change to acknowledge" }
+                val previous = requireNotNull(peerDirectoryTrustStore.read(ownerUid, peerUid)) { "Missing previous checkpoint" }
+                val response = authenticated { api.peerCryptoDirectory(peerUid) }
+                val history = authenticated { api.peerCryptoDirectoryHistory(peerUid, previous.checkpoint.sequence) }
+                val current = PeerDirectoryContinuity.inspect(response, history, peerUid, previous)
+                require(current.requiresAcknowledgement && current.checkpoint == displayed.checkpoint &&
+                    current.devices.keys == displayed.devices.keys &&
+                    current.devices.all { (id, item) ->
+                        val shown = displayed.devices[id]
+                        shown != null && shown.signingKey.contentEquals(item.signingKey) &&
+                            shown.identityDhKey.contentEquals(item.identityDhKey)
+                    }
+                ) { "Каталог изменился повторно: перечитайте список устройств" }
+                peerDirectoryTrustStore.save(ownerUid, PeerDirectoryContinuity.trust(peerUid, current))
+            }.onSuccess { main.post { onResult(true, null) } }
+                .onFailure { error -> main.post { onResult(false, error.message ?: "Подтверждение отклонено") } }
+        }
+    }
+
     fun prepareCryptoDevice(
         accountUid: String,
         onResult: (CryptoDeviceSnapshot?, String?) -> Unit,
