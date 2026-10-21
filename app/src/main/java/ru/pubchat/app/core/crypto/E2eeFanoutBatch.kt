@@ -91,6 +91,7 @@ internal object E2eeFanoutBatch {
             val session = uuid(target.sessionId)
             val packetUid = packetId(id, recipient)
             val packet = E2eeSessionLedger.reserve(state, packetUid, sender, recipient, session, plaintext)
+            require(packet.counter <= 2_147_483_647L) { "Server envelope counter limit exceeded" }
             // Store header alongside the immutable packet, never fetch a newer
             // initial_header during retry after device or key rotation.
             envelopes.add(Envelope(recipient, session, packet.counter, packet.nonce, packet.ciphertext,
@@ -160,7 +161,7 @@ internal object E2eeFanoutBatch {
         val row = batches.getJSONObject(id)
         val packets = row.getJSONArray("packet_ids")
         for (i in 0 until packets.length()) {
-            require(E2eeSessionLedger.acknowledge(state, packets.getString(i)))
+            require(state.getJSONObject("pending").remove(packets.getString(i)) != null)
         }
         batches.remove(id)
         return true
