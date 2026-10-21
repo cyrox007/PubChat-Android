@@ -752,7 +752,7 @@ class AppController(context: Context) {
      * exactly the same immutable device UID and signing/X25519 keys.
      */
     /** Inspect peer directory before future encrypted sends; never implies a verified safety number. */
-    fun inspectPeerDirectory(
+    internal fun inspectPeerDirectory(
         ownerUid: String,
         peerUid: String,
         onResult: (PeerDirectoryInspection?, String?) -> Unit,
@@ -777,7 +777,7 @@ class AppController(context: Context) {
     }
 
     /** Call ONLY after explicit user acknowledgement; does not mark a safety number verified. */
-    fun acknowledgePeerDirectoryChange(
+    internal fun acknowledgePeerDirectoryChange(
         ownerUid: String,
         peerUid: String,
         displayed: PeerDirectoryInspection,
