@@ -23,3 +23,17 @@ This milestone adds a fail-closed encrypted, transaction-like local snapshot. It
 - CI/JVM tests establish state transitions; physical-device crash/reinstall, Web↔Android protocol interoperability, replay and multi-device negative-path tests are still required.
 
 Tracking: [Android E2EE phase 2 #61](https://github.com/cyrox007/PubChat-Android/issues/61).
+
+
+## Atomic multi-device fan-out milestone (#73)
+
+- `E2eeFanoutBatch.prepare` stages envelopes for **every supplied active own device and peer device** in a single state image. It requires unique devices, the current sender device, at least one device on each side, no more than 40 envelopes (the server maximum), and pre-existing outbound sessions.
+- The caller must load and authenticate current own and peer directories, check peer continuity and device changes, and verify signed-prekey bindings. This layer does not derive or authenticate that discovery itself; passing an incomplete target list would be unsafe. Until those dependencies are wired, the send path is **not available from Messenger UI**.
+- Each device has a distinct deterministic packet UUID bound to the message `front_id` and target UID. The encrypted nonce/ciphertext/counter and optional initial header are saved together with the advanced session chains and the single `front_id`. A crash can retry only the same packet set.
+- `E2eeBatchDelivery` submits the committed batch to authenticated `POST /crypto/v1/messages` only after its caller's fresh trusted-directory check. An explicit `status=ok, duplicate=false` response with matching `message.frontId` and `content_type=e2ee` triggers atomic deletion of all pending packets.
+- `duplicate=true`, HTTP timeout, authentication failure, an unexpected ACK or failure to persist local ACK is ambiguous: do **not** delete the batch or generate a fresh ciphertext under the same `front_id`. Recover by checking server history and exact message identity in a future milestone.
+- Encrypted packet creation and state commit are synchronous inside the same process lock and `AtomicFile` write. No code should publish a packet before commit returns.
+- Old single-device packet APIs are preserved for compatibility, but cannot delete a packet owned by an all-device batch.
+- Initial session headers and key provenance still require authenticated 3DH/prekey bootstrap; automatic fan-out discovery, encrypted history and recovery, device revocation, and signed-device QA are outstanding.
+
+This prevents **local** partial fan-out commits, but it does not yet implement an end-to-end production send. Server membership validation remains the final authority at POST. 
