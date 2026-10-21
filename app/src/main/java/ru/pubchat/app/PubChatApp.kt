@@ -83,6 +83,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
 import ru.pubchat.app.core.network.MessengerEncryptionStatus
+import ru.pubchat.app.core.crypto.PeerDirectoryInspection
 import ru.pubchat.app.core.realtime.PendingMessengerSend
 import ru.pubchat.app.ui.components.SocialAvailabilityControls
 import ru.pubchat.app.ui.components.FriendshipHubContent
@@ -407,6 +408,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var dmEncryption by remember { mutableStateOf<MessengerEncryptionStatus?>(null) }
     var dmEncryptionLoading by remember { mutableStateOf(false) }
     var dmEncryptionError by remember { mutableStateOf<String?>(null) }
+    var dmDirectoryInspection by remember { mutableStateOf<PeerDirectoryInspection?>(null) }
+    var dmDirectoryMessage by remember { mutableStateOf<String?>(null) }
+    var dmDirectoryBusy by remember { mutableStateOf(false) }
     var dmEncryptionGeneration by remember { mutableStateOf(0) }
     var selectedMessageUid by remember { mutableStateOf<String?>(null) }
     var actionMode by remember { mutableStateOf<String?>(null) }
@@ -687,8 +691,43 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         dmDraft = ""
         dmPending = null
         dmSending = false
+        dmDirectoryInspection = null
+        dmDirectoryMessage = null
+        dmDirectoryBusy = false
         section = AppSection.MESSENGER_CHAT
         if (messengerConnection == "connected") controller.requestConversation(dialog.partnerUid) else connectMessenger(dialog.partnerUid)
+    }
+
+    fun inspectDirectory() {
+        val peer = activeDialog?.partnerUid ?: return
+        if (dmDirectoryBusy) return
+        dmDirectoryBusy = true
+        dmDirectoryInspection = null
+        dmDirectoryMessage = null
+        controller.inspectPeerDirectory(state.accountUid, peer) { inspection, failure ->
+            if (activeDialog?.partnerUid == peer) {
+                dmDirectoryBusy = false
+                dmDirectoryInspection = inspection
+                dmDirectoryMessage = failure ?: if (inspection?.requiresAcknowledgement == true) {
+                    "Состав или ключи устройств изменились. Подтвердите, что заметили изменение. Это НЕ проверка личности."
+                } else "Контрольная сумма и история каталога устройств проверены. Личность собеседника не подтверждена."
+            }
+        }
+    }
+
+    fun acknowledgeDirectory() {
+        val peer = activeDialog?.partnerUid ?: return
+        val displayed = dmDirectoryInspection?.takeIf { it.requiresAcknowledgement } ?: return
+        if (dmDirectoryBusy) return
+        dmDirectoryBusy = true
+        controller.acknowledgePeerDirectoryChange(state.accountUid, peer, displayed) { accepted, failure ->
+            if (activeDialog?.partnerUid == peer) {
+                dmDirectoryBusy = false
+                dmDirectoryInspection = null
+                dmDirectoryMessage = if (accepted) "Изменение списка замечено и сохранено. Сверьте safety number отдельно."
+                    else (failure ?: "Состав устройств изменился, обновите проверку.")
+            }
+        }
     }
 
     fun checkMessengerEncryption(peerUid: String) {
@@ -1063,6 +1102,11 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     encryptionError = dmEncryptionError,
                     sending = dmSending,
                     onEncryptionRetry = { activeDialog?.partnerUid?.let(::checkMessengerEncryption) },
+                    directoryStatus = dmDirectoryMessage,
+                    directoryBusy = dmDirectoryBusy,
+                    directoryChanged = dmDirectoryInspection?.requiresAcknowledgement == true,
+                    onCheckDirectory = ::inspectDirectory,
+                    onAcknowledgeDirectory = ::acknowledgeDirectory,
                     draft = dmDraft,
                     onDraft = { dmDraft = it },
                     selectedUid = selectedMessageUid,
@@ -1721,6 +1765,11 @@ private fun MessengerChatContent(
     encryptionError: String?,
     sending: Boolean,
     onEncryptionRetry: () -> Unit,
+    directoryStatus: String?,
+    directoryBusy: Boolean,
+    directoryChanged: Boolean,
+    onCheckDirectory: () -> Unit,
+    onAcknowledgeDirectory: () -> Unit,
     draft: String,
     onDraft: (String) -> Unit,
     selectedUid: String?,
@@ -1753,6 +1802,17 @@ private fun MessengerChatContent(
                 Text("Повторить проверку шифрования")
             }
         }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onCheckDirectory, enabled = dialog != null && !directoryBusy) {
+                Text(if (directoryBusy) "Проверяем каталог…" else "Проверить ключи устройств")
+            }
+            if (directoryChanged) TextButton(onClick = onAcknowledgeDirectory, enabled = !directoryBusy) {
+                Text("Я заметил изменение")
+            }
+        }
+        directoryStatus?.let { Text(it, Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (directoryChanged) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
         error?.let { Text(it, Modifier.padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Можно начать с простого «привет»." else "Загружаем личный разговор…") }
