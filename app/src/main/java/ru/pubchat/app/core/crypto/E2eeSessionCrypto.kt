@@ -97,8 +97,8 @@ internal object E2eeSessionCrypto {
         val recipient = UUID.fromString(recipientDevice).toString()
         val session = UUID.fromString(sessionId).toString()
         require(senderDevice == sender && recipientDevice == recipient && sessionId == session)
-        // This order/encoding is explicit; compare with Web AAD vector before enablement.
-        return "1:$sender:$recipient:$session:$counter".toByteArray(Charsets.UTF_8)
+        // Exact JSON.stringify key ordering from frontend/src/crypto/messengerE2EE.js.
+        return "{\\"v\\":\\"pubchat-e2ee-v1\\",\\"s\\":\\"$sender\\",\\"r\\":\\"$recipient\\",\\"sid\\":\\"$session\\",\\"c\\":$counter}".toByteArray(Charsets.UTF_8)
     }
 
     data class Sealed(val nonce: ByteArray, val ciphertext: ByteArray)
