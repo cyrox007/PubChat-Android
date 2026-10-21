@@ -83,6 +83,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
 import ru.pubchat.app.core.network.MessengerEncryptionStatus
+import ru.pubchat.app.core.realtime.PendingMessengerSend
 import ru.pubchat.app.ui.components.SocialAvailabilityControls
 import ru.pubchat.app.ui.components.FriendshipHubContent
 import ru.pubchat.app.ui.components.PubChatEmptyState
@@ -402,6 +403,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var onlineStatuses by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var dmDraft by remember { mutableStateOf("") }
     var dmSending by remember { mutableStateOf(false) }
+    var dmPending by remember { mutableStateOf<PendingMessengerSend?>(null) }
     var dmEncryption by remember { mutableStateOf<MessengerEncryptionStatus?>(null) }
     var dmEncryptionLoading by remember { mutableStateOf(false) }
     var dmEncryptionError by remember { mutableStateOf<String?>(null) }
@@ -622,8 +624,31 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                 conversations = conversations.mapValues { (_, list) -> list.map { if (it.uid == messageUid) it.copy(isRead = true) else it } }
             },
             onStatuses = { onlineStatuses = onlineStatuses + it },
-            onConnection = { messengerConnection = it },
+            onConnection = {
+                messengerConnection = it
+                // Transport loss leaves draft intact: delivery outcome is unknown.
+                if (it == "disconnected" || it == "restricted" || it == "reconnecting") {
+                    dmPending = null
+                    dmSending = false
+                }
+            },
             onError = { messengerError = it },
+            onSendConfirmed = { frontId, peerUid ->
+                val pending = dmPending
+                if (pending != null && pending.matchesEcho(frontId, peerUid)) {
+                    if (activeDialog?.partnerUid == peerUid && pending.shouldClearDraft(dmDraft)) dmDraft = ""
+                    dmPending = null
+                    dmSending = false
+                    messengerError = null
+                }
+            },
+            onSendFailed = { frontId, reason ->
+                if (dmPending?.frontId == frontId) {
+                    dmPending = null
+                    dmSending = false
+                    messengerError = reason
+                }
+            },
         )
     }
 
@@ -660,6 +685,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         selectedMessageUid = null
         actionMode = null
         dmDraft = ""
+        dmPending = null
+        dmSending = false
         section = AppSection.MESSENGER_CHAT
         if (messengerConnection == "connected") controller.requestConversation(dialog.partnerUid) else connectMessenger(dialog.partnerUid)
     }
@@ -1048,15 +1075,20 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         val peer = activeDialog?.partnerUid
                         val sentText = dmDraft
                         if (peer != null && sentText.isNotBlank() && !dmSending) {
+                            val pending = PendingMessengerSend(java.util.UUID.randomUUID().toString(), peer, sentText.trim())
+                            dmPending = pending
                             dmSending = true
                             messengerError = null
-                            controller.sendPrivateMessage(peer, sentText) { queued, failure ->
-                                dmSending = false
-                                if (activeDialog?.partnerUid == peer) {
-                                    messengerError = failure
-                                    if (queued && dmDraft == sentText) dmDraft = ""
-                                    if (!queued) checkMessengerEncryption(peer)
+                            controller.sendPrivateMessage(peer, sentText, pending.frontId) { queued, failure ->
+                                if (!queued && dmPending?.frontId == pending.frontId) {
+                                    dmPending = null
+                                    dmSending = false
+                                    if (activeDialog?.partnerUid == peer) {
+                                        messengerError = failure ?: "Сообщение не отправлено"
+                                        checkMessengerEncryption(peer)
+                                    }
                                 }
+                                // A queued websocket frame is NOT a server acknowledgement.
                             }
                         }
                     },
