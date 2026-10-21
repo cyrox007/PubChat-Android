@@ -41,6 +41,7 @@ internal object E2eeSessionLedger {
             val data = java.util.Base64.getUrlDecoder().decode(ciphertext)
             require(data.size >= 16 && CryptoV1.b64(data) == ciphertext)
         }
+        E2eeFanoutBatch.validate(root)
     }
 
     fun addSession(root: JSONObject, direction: String, peer: String, session: String, chain: ByteArray) {
@@ -100,8 +101,18 @@ internal object E2eeSessionLedger {
     }
 
     /** Only after server ACK. On ambiguous error keep identical ciphertext. */
-    fun acknowledge(root: JSONObject, frontId: String): Boolean =
-        root.getJSONObject("pending").remove(uid(frontId)) != null
+    fun acknowledge(root: JSONObject, frontId: String): Boolean {
+        val packetId = uid(frontId)
+        // Per-device ACK must not tear apart an all-device send.
+        val batches = root.optJSONObject("batches")
+        if (batches != null) for (batch in batches.keys()) {
+            val ids = batches.getJSONObject(batch).getJSONArray("packet_ids")
+            for (index in 0 until ids.length()) {
+                require(ids.getString(index) != packetId) { "Use atomic batch acknowledgement" }
+            }
+        }
+        return root.getJSONObject("pending").remove(packetId) != null
+    }
 
     /** An inbound counter may only advance AFTER authenticating the ciphertext. */
     fun decryptNext(
