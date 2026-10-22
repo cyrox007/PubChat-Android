@@ -29,6 +29,11 @@ internal object E2eeSessionLedger {
             require(name == key(row.getString("direction"), row.getString("peer"), row.getString("session")))
             require(row.getLong("next") >= 0)
             CryptoV1.parseB64(row.getString("chain"), 32)
+            if (row.getString("direction") == "in" && row.has("sender_identity_dh")) {
+                CryptoV1.parseB64(row.getString("sender_identity_dh"), 32)
+                CryptoV1.parseB64(row.getString("sender_identity_signing"), 32)
+            }
+
             if (row.has("initial_header")) {
                 CryptoV1.parseB64(row.getString("peer_identity_dh"), 32)
                 CryptoV1.parseB64(row.getString("peer_signing"), 32)
@@ -42,6 +47,18 @@ internal object E2eeSessionLedger {
                     require(header.getInt("target_one_time_prekey_id") >= 0)
                 }
                 row.getBoolean("header_confirmed")
+            }
+        }
+        val consumed = root.optJSONObject("consumed_one_time_prekeys")
+        if (consumed != null) {
+            require(consumed.length() <= 100) { "Consumed prekey ledger exceeded bound" }
+            for (id in consumed.keys()) {
+                require(id.toIntOrNull()?.let { it >= 0 && it.toString() == id } == true)
+                val sessionName = consumed.getString(id)
+                require(sessions.has(sessionName) &&
+                    sessions.getJSONObject(sessionName).getString("direction") == "in") {
+                    "Consumed one-time prekey lost inbound session"
+                }
             }
         }
         for (name in pending.keys()) {
