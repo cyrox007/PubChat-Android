@@ -611,16 +611,19 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     }
 
     fun decryptDialogMessages(peerUid: String, items: List<PubChatApi.ChatMessage>) {
+        val cacheKey = state.accountUid + ":" + peerUid
         val remaining = items.filter { it.contentType == "e2ee" &&
-            it.senderUid == peerUid && e2eeDecrypted[peerUid]?.containsKey(it.uid) != true }
+            it.senderUid == peerUid && e2eeDecrypted[cacheKey]?.containsKey(it.uid) != true }
         if (remaining.isEmpty()) return
         val owner = state.accountUid
         controller.decryptMessengerHistory(owner, peerUid, remaining) { decoded, failure ->
             if (state.accountUid == owner) {
                 if (decoded.isNotEmpty()) {
-                    e2eeDecrypted = e2eeDecrypted + (peerUid to
-                        (e2eeDecrypted[peerUid].orEmpty() + decoded))
-                    if (activeDialog?.partnerUid == peerUid) decoded.keys.forEach(controller::markPrivateRead)
+                    e2eeDecrypted = e2eeDecrypted + (cacheKey to
+                        (e2eeDecrypted[cacheKey].orEmpty() + decoded))
+                    if (activeDialog?.partnerUid == peerUid) decoded.keys.forEach { uid ->
+                        controller.markPrivateRead(uid)
+                    }
                 }
                 if (activeDialog?.partnerUid == peerUid) e2eeReceiveError = failure
             }
@@ -715,6 +718,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         dmDirectoryInspection = null
         dmDirectoryMessage = null
         dmDirectoryBusy = false
+        e2eeReceiveError = null
         section = AppSection.MESSENGER_CHAT
         if (messengerConnection == "connected") controller.requestConversation(dialog.partnerUid) else connectMessenger(dialog.partnerUid)
     }
@@ -1115,7 +1119,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     },
                     dialog = activeDialog,
                     messages = conversations[activeDialog?.partnerUid].orEmpty(),
-                    decryptedE2ee = e2eeDecrypted[activeDialog?.partnerUid].orEmpty(),
+                    decryptedE2ee = e2eeDecrypted[state.accountUid + ":" + activeDialog?.partnerUid].orEmpty(),
                     e2eeReceiveError = e2eeReceiveError,
                     onRetryE2ee = { activeDialog?.partnerUid?.let { uid ->
                         decryptDialogMessages(uid, conversations[uid].orEmpty())
@@ -1844,7 +1848,8 @@ private fun MessengerChatContent(
             color = if (directoryChanged) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
         error?.let { Text(it, Modifier.padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
         e2eeReceiveError?.let { Text(it, Modifier.padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
-        if (messages.any { it.contentType == "e2ee" && !decryptedE2ee.containsKey(it.uid) }) {
+        if (messages.any { it.contentType == "e2ee" &&
+            it.senderUid == dialog?.partnerUid && !decryptedE2ee.containsKey(it.uid) }) {
             TextButton(onClick = onRetryE2ee, modifier = Modifier.padding(horizontal = 10.dp)) { Text("Повторить расшифровку E2EE") }
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
