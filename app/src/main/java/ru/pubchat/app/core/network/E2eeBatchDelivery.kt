@@ -2,6 +2,8 @@ package ru.pubchat.app.core.network
 
 import org.json.JSONObject
 import ru.pubchat.app.core.crypto.E2eeSessionStore
+import ru.pubchat.app.core.crypto.E2eeDevicePreflight
+import ru.pubchat.app.core.crypto.PeerDirectoryInspection
 
 /**
  * No UI caller until verified device-directory preflight, signed-prekey
@@ -18,14 +20,16 @@ internal class E2eeBatchDelivery(
         ownerAccountUid: String,
         localDeviceUid: String,
         frontId: String,
-        assertFreshTrustedDirectories: () -> Unit,
+        prepared: E2eeDevicePreflight.VerifiedTargets,
+        loadFreshCheckedDirectories: () -> Pair<PeerDirectoryInspection, PeerDirectoryInspection>,
     ): JSONObject {
         // Read and verify the already committed ciphertext before any network IO.
         val batch = store.pendingBatch(ownerAccountUid, localDeviceUid, frontId)
         require(batch.senderDeviceUid == localDeviceUid) { "Sender device does not match store" }
         // Must check both Account directories, key identities and exact
         // fan-out target membership immediately before transport.
-        assertFreshTrustedDirectories()
+        val (freshOwn, freshPeer) = loadFreshCheckedDirectories()
+        E2eeDevicePreflight.recheck(prepared, freshOwn, freshPeer, batch)
         val message = api.sendCommittedE2eeBatch(batch)
         check(store.acknowledgeBatch(ownerAccountUid, localDeviceUid, frontId)) {
             "Server accepted batch but local ACK persistence failed: reconcile state"
