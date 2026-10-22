@@ -18,6 +18,8 @@ import ru.pubchat.app.core.network.PubChatApi
 import ru.pubchat.app.core.crypto.CryptoDeviceMaterial
 import ru.pubchat.app.core.crypto.CryptoDeviceSnapshot
 import ru.pubchat.app.core.crypto.CryptoDeviceStore
+import ru.pubchat.app.core.crypto.E2eeInboundText
+import ru.pubchat.app.core.crypto.E2eeSessionStore
 import ru.pubchat.app.core.crypto.PeerDirectoryContinuity
 import ru.pubchat.app.core.crypto.PeerDirectoryTrustStore
 import ru.pubchat.app.core.crypto.PeerDirectoryInspection
@@ -57,6 +59,7 @@ class AppController(context: Context) {
     private val appContext = context.applicationContext
     private val session = SessionStore(appContext)
     private val cryptoDeviceStore = CryptoDeviceStore(appContext)
+    private val e2eeSessionStore = E2eeSessionStore(appContext)
     private val peerDirectoryTrustStore = PeerDirectoryTrustStore(appContext)
     private val api = PubChatApi(
         deviceUid = { session.deviceUid },
@@ -751,6 +754,58 @@ class AppController(context: Context) {
      * Identity is persisted before the first request, so network retries reuse
      * exactly the same immutable device UID and signing/X25519 keys.
      */
+    /**
+     * Explicit inbound read integration. Failed/unsupported ciphertext remains
+     * locked; a successfully decrypted message is returned only AFTER durable
+     * ratchet commit, never from server-supplied plaintext metadata.
+     */
+    internal fun decryptMessengerHistory(
+        ownerUid: String, peerUid: String,
+        messages: List<PubChatApi.ChatMessage>,
+        onResult: (Map<String, String>, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                val candidates = messages.filter { it.contentType == "e2ee" &&
+                    it.senderUid == peerUid }.take(100)
+                if (candidates.isEmpty()) return@runCatching emptyMap<String, String>()
+                val local = requireNotNull(cryptoDeviceStore.read(ownerUid)) {
+                    "Криптографическое устройство не настроено"
+                }
+                val prior = peerDirectoryTrustStore.read(ownerUid, peerUid)
+                val directoryResponse = authenticated { api.peerCryptoDirectory(peerUid) }
+                val currentSeq = PeerDirectoryContinuity.checkpoint(
+                    JSONObject(directoryResponse).getJSONObject("directory_checkpoint")).sequence
+                val history = if (prior != null && currentSeq > prior.checkpoint.sequence)
+                    authenticated { api.peerCryptoDirectoryHistory(peerUid, prior.checkpoint.sequence) }
+                else null
+                val trusted = PeerDirectoryContinuity.inspect(directoryResponse, history, peerUid, prior)
+                require(!trusted.requiresAcknowledgement) {
+                    "Ключи собеседника изменились — сначала подтвердите каталог устройств"
+                }
+                val envelopes = authenticated { api.e2eeMessageEnvelopes(candidates.map { it.uid }) }
+                val decrypted = linkedMapOf<String, String>()
+                for (message in candidates) {
+                    try {
+                        val envelope = E2eeInboundText.selectEnvelope(envelopes, message.uid, local.deviceUid)
+                        require(envelope.senderDeviceUid in trusted.devices.keys)
+                        val text = e2eeSessionStore.decryptInboundText(
+                            ownerUid, local.deviceUid, local, trusted, envelope)
+                        decrypted[message.uid] = text
+                    } catch (_: Exception) {
+                        // Unknown/replayed/out-of-order/corrupt envelopes stay locked.
+                        // Do not expose server metadata or downgrade to plaintext.
+                    }
+                }
+                peerDirectoryTrustStore.save(ownerUid, PeerDirectoryContinuity.trust(peerUid, trusted))
+                decrypted
+            }.onSuccess { result -> main.post { onResult(result, null) } }
+                .onFailure { error -> main.post {
+                    onResult(emptyMap(), "E2EE: " + (error.message ?: "расшифровка недоступна"))
+                } }
+        }
+    }
+
     /** Inspect peer directory before future encrypted sends; never implies a verified safety number. */
     internal fun inspectPeerDirectory(
         ownerUid: String,
@@ -810,8 +865,11 @@ class AppController(context: Context) {
     ) {
         executor.execute {
             runCatching {
-                val material = cryptoDeviceStore.read(accountUid)
-                    ?: CryptoDeviceMaterial.generate(accountUid).also(cryptoDeviceStore::save)
+                val existing = cryptoDeviceStore.read(accountUid)
+                val material = existing ?: CryptoDeviceMaterial.generate(accountUid).also(cryptoDeviceStore::save)
+                // Initialize ONLY when explicitly provisioning a fresh crypto identity.
+                // Never reset a lost ledger for an existing registered device.
+                if (existing == null) e2eeSessionStore.initialize(accountUid, material.deviceUid)
                 authenticated { api.registerCryptoDevice(material) }
             }
                 .onSuccess { snapshot -> main.post { onResult(snapshot, null) } }
