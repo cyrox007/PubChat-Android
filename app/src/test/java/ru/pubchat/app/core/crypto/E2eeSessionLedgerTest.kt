@@ -72,11 +72,19 @@ class E2eeSessionLedgerTest {
         // durable wrapper commits only after the transition returns.
         assertArrayEquals("trusted".toByteArray(),
             E2eeSessionLedger.decryptNext(state, sender, recipient, session, 0, nonce, original))
+        // Previously authenticated exact ciphertext can be restored from
+        // persisted key cache after process restart without ratchet rollback.
+        val restored = JSONObject(state.toString())
+        assertArrayEquals("trusted".toByteArray(),
+            E2eeSessionLedger.decryptNext(restored, sender, recipient, session, 0, nonce, original))
+        assertEquals(1L, restored.getJSONObject("sessions")
+            .getJSONObject("in:$sender:$session").getLong("next"))
         assertThrows(Exception::class.java) {
-            E2eeSessionLedger.decryptNext(state, sender, recipient, session, 0, nonce, original)
+            E2eeSessionLedger.decryptNext(restored, sender, recipient, session, 0, nonce,
+                CryptoV1.b64(tampered))
         }
         assertThrows(Exception::class.java) {
-            E2eeSessionLedger.decryptNext(state, sender, recipient, session, 2, nonce, original)
+            E2eeSessionLedger.decryptNext(restored, sender, recipient, session, 100, nonce, original)
         }
         E2eeSessionLedger.validate(state, account, recipient)
     }
