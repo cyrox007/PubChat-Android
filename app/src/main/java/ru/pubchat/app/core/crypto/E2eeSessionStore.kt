@@ -195,6 +195,22 @@ internal class E2eeSessionStore(context: Context) {
             E2eeSessionLedger.decryptNext(state, sender, device, sessionId, counter, nonce, ciphertext)
         }
 
+    /**
+     * First inbound 3DH + authenticated ciphertext + consumed OTK marker +
+     * advanced chain are committed together before plaintext is returned.
+     * Caller must have checked sender's latest directory / history.
+     */
+    fun decryptInbound(
+        account: String,
+        device: String,
+        identity: CryptoDeviceMaterial,
+        checkedSender: PeerDirectoryInspection,
+        envelope: E2eeInboundBootstrap.Envelope,
+    ): ByteArray = mutate(account, device) { state ->
+        require(account == identity.accountUid && device == identity.deviceUid)
+        E2eeInboundBootstrap.decrypt(state, identity, checkedSender, envelope)
+    }
+
     /** Only after confirmed remote device revocation, never on ordinary logout. */
     fun clearAfterServerRevocation(account: String, device: String) = synchronized(processLock) {
         file(account, device).delete()

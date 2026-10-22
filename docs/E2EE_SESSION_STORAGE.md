@@ -66,3 +66,13 @@ This prevents **local** partial fan-out commits, but it does not yet implement a
 - Existing outbound sessions are bound to pinned peer Ed25519/X25519 identity. Unconfirmed initial headers are included on retries and subsequent pending sends until the server acknowledges a full batch; successful server ACK updates header status atomically with clearing the pending batch.
 - Includes independent sender/recipient 3DH decryption checks for first ciphertexts and negative tests for identity substitution and duplicate front IDs.
 - **Not enabled in Messenger UI.** Receiving/bootstrap for inbound sessions, key rotation/revocation, authenticated server history and crash recovery of lost ACK, multi-device Web↔Android physical QA and message rendering remain blocking. This is a protocol foundation, not security acceptance of full E2EE.
+
+
+## Inbound first-message 3DH (next milestone)
+
+- `E2eeInboundBootstrap` rejects unknown sender devices or unacknowledged directory changes; sender identity DH and signing keys from the initial header must exactly match the continuity-checked sender directory.
+- The recipient UID is bound to its stored device identity. The initial message requires a valid target signed prekey ID, optional locally available one-time prekey ID, and counter zero; there is **no fallback** to a different private key.
+- An inbound session and consumed-one-time-prekey marker are staged with AEAD decryption and receive counter advancement; `E2eeSessionStore.decryptInbound` commits the entire encrypted AtomicFile state **before** returning plaintext. Authentication failure leaves the prior on-disk state unchanged.
+- Existing inbound sessions pin sender identity keys, forbid silent replacement, and reject duplicate/old or missing counters. First-message replay cannot burn a second one-time prekey.
+- JVM tests verify real sender/recipient 3DH agreement, first ciphertext decryption, the following message, replay rejection, invalid headers, tampering and missing keys.
+- **Important release limitations:** this milestone intentionally does not wire automatic envelope retrieval/history or Messenger UI rendering, and it currently refuses out-of-order counters rather than caching skipped keys. A signed-prekey private-key archive and precise one-time-prekey lifecycle on rotation/revocation still require an end-to-end design. Historical receive deduplication and physical Web↔Android interoperability QA are outstanding. These gaps block marking E2EE production-ready.
