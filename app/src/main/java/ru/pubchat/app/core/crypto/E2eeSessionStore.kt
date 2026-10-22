@@ -156,6 +156,21 @@ internal class E2eeSessionStore(context: Context) {
         E2eeFanoutBatch.prepare(state, frontId, device, receiverUid, ownDevices, peerDevices, plaintext)
     }
 
+    /** New 3DH sessions + headers + first encrypted batch, one durable transaction. */
+    fun bootstrapAndPrepareBatch(
+        account: String, device: String,
+        local: CryptoDeviceMaterial,
+        verified: E2eeDevicePreflight.VerifiedTargets,
+        frontId: String, plaintext: ByteArray,
+    ): E2eeFanoutBatch.Batch = mutate(account, device) { state ->
+        require(account == local.accountUid && device == local.deviceUid)
+        E2eeAtomicBootstrap.prepare(state, local, verified, frontId, plaintext)
+    }
+
+    /** Confirm first headers only together with the entire server-accepted batch. */
+    fun acknowledgeBootstrappedBatch(account: String, device: String, frontId: String): Boolean =
+        mutate(account, device) { state -> E2eeAtomicBootstrap.acknowledge(state, frontId) }
+
     /** Always re-read the exact committed envelopes before any HTTP retry. */
     fun pendingBatch(account: String, device: String, frontId: String): E2eeFanoutBatch.Batch =
         synchronized(processLock) { E2eeFanoutBatch.load(read(account, device), frontId) }
