@@ -491,6 +491,13 @@ class PubChatApi(
         return request("GET", "/crypto/v1/accounts/$canonical/directory-history?after_sequence=$afterSequence&limit=200").body
     }
 
+    /** Claim one-time prekeys only after directories have passed local continuity checks. */
+    internal fun claimPeerCryptoPrekeyBundle(accountUid: String): String {
+        val canonical = java.util.UUID.fromString(accountUid).toString()
+        require(accountUid == canonical)
+        return request("GET", "/crypto/v1/accounts/$canonical/prekey-bundle").body
+    }
+
     internal fun revokeCryptoDevice(material: CryptoDeviceMaterial) {
         val body = request("DELETE", "/crypto/v1/devices/${material.deviceUid}").body
         parseCryptoRevocation(body, material.deviceUid)
