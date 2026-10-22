@@ -86,3 +86,14 @@ This prevents **local** partial fan-out commits, but it does not yet implement a
 - Received plaintext exists only in current in-memory UI state and is not logged or written to Preferences. Already-decrypted items may remain visible across a subsequent history refresh within the same signed-in shell.
 - Outgoing encrypted sending remains blocked until its release gates have been met. This milestone does **not** enable a plaintext fallback.
 - **Known limitations:** sender-own echo history is still locked; out-of-order message counters and previously-consumed messages after process restart need a key cache; session initialization/recovery and signed-prekey rotation archives are not automatic; physical-device Web↔Android interoperability and full error-path QA remain pending. Do not label the Messenger implementation E2EE-production-ready.
+
+
+## Bounded authenticated inbound history recovery
+
+- Each inbound session maintains a Keystore/AtomicFile-wrapped receive-key cache (up to 128 keys per session and 512 overall). No decrypted plaintext is persisted.
+- A gap of at most 64 messages may advance the receive chain: derived skipped keys are stored atomically. Late-arriving envelopes authenticate using a saved key without rolling the chain backward.
+- Once a ciphertext has authenticated at a counter, the cache pins SHA-256(nonce || ciphertext). Exact historical envelopes can be re-decrypted after process restart to restore the Messenger view. A changed nonce or ciphertext at the same counter fails closed.
+- Decryption failures do not commit any new ratchet state; the caller still validates plaintext type before committing a receive transaction.
+- Old preexisting session state without cache fields remains readable. Cache exhaustion is a hard error (no unsafe key eviction), so **long-running conversations with more than the current bounded history window need a follow-up retention/backup design**.
+- Replay for an identical authenticated historical envelope is a read-only history recovery, not a second delivery event or new server acknowledgement; UI deduplicates by message UID.
+- This is still not a full double-ratchet protocol: symmetric per-session chain keys, identity rotation handling, anti-rollback across filesystem restoration, sender own-device echo and physical Web↔Android tests remain outstanding.
