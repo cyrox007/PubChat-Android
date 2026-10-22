@@ -37,3 +37,12 @@ Tracking: [Android E2EE phase 2 #61](https://github.com/cyrox007/PubChat-Android
 - Initial session headers and key provenance still require authenticated 3DH/prekey bootstrap; automatic fan-out discovery, encrypted history and recovery, device revocation, and signed-device QA are outstanding.
 
 This prevents **local** partial fan-out commits, but it does not yet implement an end-to-end production send. Server membership validation remains the final authority at POST. 
+
+
+## Device-directory preflight (next milestone)
+
+- `E2eeDevicePreflight.verify` requires checked own+peer directory inspections with no unacknowledged membership changes, a locally stored cryptographic identity matching the active own device, and a signed peer bundle with exactly the same device/key identities.
+- It rejects substituted signing/DH/signed-prekey material, a revoked/missing sender, duplicate devices across accounts, and fan-out larger than the server 40-envelope limit.
+- `E2eeBatchDelivery` no longer accepts an arbitrary `Unit` success callback. It requires typed `VerifiedTargets`, obtains fresh checked own+peer snapshots, and compares checkpoint identities, key material and complete envelope recipients before POST.
+- Signed-prekey verification and peer directory history checking are performed by earlier standalone components; callers MUST obtain trusted, persisted inspections before constructing a preflight.
+- **Not ready for real transmission:** the inspected snapshots are not yet automatically fetched or joined to session bootstrap / durable initial headers; do not call this from Messenger UI. Current server-side directory proofs do not provide external witness protection. Tests in this milestone are offline contract checks, not live server/Web↔Android integration.
