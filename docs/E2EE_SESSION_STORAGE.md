@@ -76,3 +76,13 @@ This prevents **local** partial fan-out commits, but it does not yet implement a
 - Existing inbound sessions pin sender identity keys, forbid silent replacement, and reject duplicate/old or missing counters. First-message replay cannot burn a second one-time prekey.
 - JVM tests verify real sender/recipient 3DH agreement, first ciphertext decryption, the following message, replay rejection, invalid headers, tampering and missing keys.
 - **Important release limitations:** this milestone intentionally does not wire automatic envelope retrieval/history or Messenger UI rendering, and it currently refuses out-of-order counters rather than caching skipped keys. A signed-prekey private-key archive and precise one-time-prekey lifecycle on rotation/revocation still require an end-to-end design. Historical receive deduplication and physical Web↔Android interoperability QA are outstanding. These gaps block marking E2EE production-ready.
+
+
+## Read-only encrypted Messenger receive surface
+
+- `PubChatApi.e2eeMessageEnvelopes` requests at most 100 unique message UIDs using authenticated `POST /crypto/v1/messages/envelopes`; the server returns only Account-accessible ciphertext envelopes.
+- `AppController.decryptMessengerHistory` fetches and continuity-checks the peer device directory, rejects unacknowledged device-key changes, selects exactly one envelope for the current cryptographic device per message, and calls the crash-atomic inbound 3DH/AEAD store. The message is displayed only after the durable store commit succeeds and the decrypted JSON has `type=text` with a valid UTF-8 text field.
+- `PubChatApp` renders authenticated plaintext in the active conversation with a lock marker. Missing, mismatched, corrupted, replayed or out-of-order ciphertext stays locked; server `message.content` is never substituted as plaintext. The reply/edit/forward controls remain unavailable for E2EE messages.
+- Received plaintext exists only in current in-memory UI state and is not logged or written to Preferences. Already-decrypted items may remain visible across a subsequent history refresh within the same signed-in shell.
+- Outgoing encrypted sending remains blocked until its release gates have been met. This milestone does **not** enable a plaintext fallback.
+- **Known limitations:** sender-own echo history is still locked; out-of-order message counters and previously-consumed messages after process restart need a key cache; session initialization/recovery and signed-prekey rotation archives are not automatic; physical-device Web↔Android interoperability and full error-path QA remain pending. Do not label the Messenger implementation E2EE-production-ready.
