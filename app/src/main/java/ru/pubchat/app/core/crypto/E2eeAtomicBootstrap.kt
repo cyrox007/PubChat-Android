@@ -73,6 +73,26 @@ internal object E2eeAtomicBootstrap {
                 frontId: String, plaintext: ByteArray): E2eeFanoutBatch.Batch {
         require(local.accountUid == verified.ownAccountUid &&
             local.deviceUid == verified.senderDeviceUid)
+        val ownIdentity = requireNotNull(verified.own[local.deviceUid]) {
+            "Sender is missing from verified own directory"
+        }
+        require(CryptoV1.b64(ownIdentity.signingKey) == local.signingPublic &&
+            CryptoV1.b64(ownIdentity.identityDhKey) == local.dhPublic &&
+            ownIdentity.signedPrekeyId == local.signedPrekey.id &&
+            CryptoV1.b64(ownIdentity.signedPrekey) ==
+                CryptoV1.b64(CryptoV1.xPublic(local.signedPrekey.seed))) {
+            "Local Keystore identity or signed prekey changed since preflight"
+        }
+        require(verified.peerClaimed.keys == verified.peer.keys)
+        for ((deviceUid, claimed) in verified.peerClaimed) {
+            val pinned = requireNotNull(verified.peer[deviceUid])
+            require(claimed.signingKey.contentEquals(pinned.signingKey) &&
+                claimed.identityDhKey.contentEquals(pinned.identityDhKey) &&
+                claimed.signedPrekeyId == pinned.signedPrekeyId &&
+                claimed.signedPrekey.contentEquals(pinned.signedPrekey)) {
+                "Claimed prekey no longer matches checked peer directory"
+            }
+        }
         require(verified.own.keys == verified.own.values.map { it.deviceUid }.toSet())
         require(verified.peer.keys == verified.peerClaimed.keys)
         require(!(state.optJSONObject("batches")?.has(uuid(frontId)) ?: false)) {
