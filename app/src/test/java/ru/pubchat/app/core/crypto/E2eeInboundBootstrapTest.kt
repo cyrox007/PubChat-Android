@@ -73,9 +73,11 @@ class E2eeInboundBootstrapTest {
         E2eeSessionLedger.validate(state, accountB, deviceB)
         val restored = JSONObject(state.toString())
         assertEquals(1, restored.getJSONObject("consumed_one_time_prekeys").length())
-        assertThrows(Exception::class.java) {
-            E2eeInboundBootstrap.decrypt(restored, recipient, inspected(sender), first)
-        }
+        // Exact authenticated first ciphertext can be displayed from history
+        // after a restart without consuming the one-time prekey again.
+        assertArrayEquals("hello 0".toByteArray(),
+            E2eeInboundBootstrap.decrypt(restored, recipient, inspected(sender), first))
+        assertEquals(1, restored.getJSONObject("consumed_one_time_prekeys").length())
         val second = inbound(sender, recipient, 1)
         assertArrayEquals("hello 1".toByteArray(),
             E2eeInboundBootstrap.decrypt(restored, recipient, inspected(sender), second))
