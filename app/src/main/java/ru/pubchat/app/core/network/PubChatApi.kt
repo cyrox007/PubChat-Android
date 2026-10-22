@@ -472,6 +472,20 @@ class PubChatApi(
      * treated as delivery confirmation without server history reconciliation.
      * This method does not delete the local pending batch.
      */
+    /** Account-scoped encrypted envelopes; never trusts message metadata as plaintext. */
+    internal fun e2eeMessageEnvelopes(messageUids: List<String>): JSONObject {
+        require(messageUids.isNotEmpty() && messageUids.size <= 100)
+        val canonical = messageUids.map { raw ->
+            java.util.UUID.fromString(raw).toString().also { require(raw == it) }
+        }
+        require(canonical.distinct().size == canonical.size)
+        val body = request("POST", "/crypto/v1/messages/envelopes",
+            JSONObject().put("message_uids", JSONArray(canonical))).body
+        val root = JSONObject(body)
+        require(root.getString("status") == "ok")
+        return root.getJSONObject("envelopes")
+    }
+
     internal fun sendCommittedE2eeBatch(batch: E2eeFanoutBatch.Batch): JSONObject {
         val body = request("POST", "/crypto/v1/messages", batch.requestBody()).body
         return E2eeSendAck.verifiedMessage(body, batch)
