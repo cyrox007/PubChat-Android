@@ -5,6 +5,13 @@ import ru.pubchat.app.core.crypto.E2eeSessionStore
 import ru.pubchat.app.core.crypto.E2eeDevicePreflight
 import ru.pubchat.app.core.crypto.PeerDirectoryInspection
 
+/** Fail closed if a conversation changed away from authenticated E2EE before transport. */
+internal fun requireE2eeDeliveryPolicy(policy: MessengerEncryptionStatus) {
+    check(policy.effectiveMode == ConversationEffectiveMode.E2EE && policy.cryptoReady) {
+        "Encrypted delivery blocked: server no longer confirms E2EE readiness"
+    }
+}
+
 /**
  * No UI caller until verified device-directory preflight, signed-prekey
  * bootstrap, history recovery and device-revocation handling are integrated.
@@ -30,6 +37,9 @@ internal class E2eeBatchDelivery(
         // fan-out target membership immediately before transport.
         val (freshOwn, freshPeer) = loadFreshCheckedDirectories()
         E2eeDevicePreflight.recheck(prepared, freshOwn, freshPeer, batch)
+        // A device-directory check alone cannot establish current conversation policy.
+        // Never submit ciphertext after the server has disabled or withdrawn E2EE readiness.
+        requireE2eeDeliveryPolicy(api.messengerEncryption(batch.receiverUid))
         val message = api.sendCommittedE2eeBatch(batch)
         check(store.acknowledgeBootstrappedBatch(ownerAccountUid, localDeviceUid, frontId)) {
             "Server accepted batch but local ACK persistence failed: reconcile state"
