@@ -789,11 +789,9 @@ class AppController(context: Context) {
                     try {
                         val envelope = E2eeInboundText.selectEnvelope(envelopes, message.uid, local.deviceUid)
                         require(envelope.senderDeviceUid in trusted.devices.keys)
-                        val plaintext = e2eeSessionStore.decryptInbound(
+                        val text = e2eeSessionStore.decryptInboundText(
                             ownerUid, local.deviceUid, local, trusted, envelope)
-                        try {
-                            decrypted[message.uid] = E2eeInboundText.decode(plaintext)
-                        } finally { plaintext.fill(0) }
+                        decrypted[message.uid] = text
                     } catch (_: Exception) {
                         // Unknown/replayed/out-of-order/corrupt envelopes stay locked.
                         // Do not expose server metadata or downgrade to plaintext.
