@@ -56,3 +56,13 @@ This prevents **local** partial fan-out commits, but it does not yet implement a
 - After the final consistency check it durably saves the continuity checkpoints. Keystore read/write failures are fatal, not an opportunity to silently reinitialize.
 - `refreshForSend` compares fresh checked directories with the prepared immutable preflight immediately before a pending ciphertext batch is submitted. The server still performs final active-device membership validation at POST.
 - **Still no UI send integration or automatic session creation.** Initial 3DH headers, all-device session creation in a crash-safe transaction, handling prekey consumption on failures, and real device roundtrip tests are the next milestones.
+
+
+## Atomic first-message 3DH bootstrap (follow-up to #75)
+
+- `E2eeAtomicBootstrap.prepare` consumes **only** verified own/peer target keys from `E2eeDevicePreflight`; it rechecks the local identity against the own signed directory and verifies the claimed peer signed-prekeys against pinned peer keys.
+- Each missing outbound target receives a fresh X25519 ephemeral key and documented 3DH/HKDF root. The first-envelope `initial_header` contains `ephemeral_key`, `target_signed_prekey_id`, optional `target_one_time_prekey_id`, `sender_identity_dh_key`, and `sender_identity_signing_key`, matching Web's wire contract.
+- New session roots, exact first headers, outbound counter advancements, and **all-device ciphertext** are committed as ONE encrypted `AtomicFile` image. On interruption the existing `frontId` can only replay the stored ciphertext; it cannot regenerate an ephemeral session at the same counter.
+- Existing outbound sessions are bound to pinned peer Ed25519/X25519 identity. Unconfirmed initial headers are included on retries and subsequent pending sends until the server acknowledges a full batch; successful server ACK updates header status atomically with clearing the pending batch.
+- Includes independent sender/recipient 3DH decryption checks for first ciphertexts and negative tests for identity substitution and duplicate front IDs.
+- **Not enabled in Messenger UI.** Receiving/bootstrap for inbound sessions, key rotation/revocation, authenticated server history and crash recovery of lost ACK, multi-device Web↔Android physical QA and message rendering remain blocking. This is a protocol foundation, not security acceptance of full E2EE.
