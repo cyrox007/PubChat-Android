@@ -867,8 +867,11 @@ class AppController(context: Context) {
     ) {
         executor.execute {
             runCatching {
-                val material = cryptoDeviceStore.read(accountUid)
-                    ?: CryptoDeviceMaterial.generate(accountUid).also(cryptoDeviceStore::save)
+                val existing = cryptoDeviceStore.read(accountUid)
+                val material = existing ?: CryptoDeviceMaterial.generate(accountUid).also(cryptoDeviceStore::save)
+                // Initialize ONLY when explicitly provisioning a fresh crypto identity.
+                // Never reset a lost ledger for an existing registered device.
+                if (existing == null) e2eeSessionStore.initialize(accountUid, material.deviceUid)
                 authenticated { api.registerCryptoDevice(material) }
             }
                 .onSuccess { snapshot -> main.post { onResult(snapshot, null) } }
