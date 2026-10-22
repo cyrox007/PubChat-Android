@@ -29,6 +29,20 @@ internal object E2eeSessionLedger {
             require(name == key(row.getString("direction"), row.getString("peer"), row.getString("session")))
             require(row.getLong("next") >= 0)
             CryptoV1.parseB64(row.getString("chain"), 32)
+            if (row.has("initial_header")) {
+                CryptoV1.parseB64(row.getString("peer_identity_dh"), 32)
+                CryptoV1.parseB64(row.getString("peer_signing"), 32)
+                require(row.getString("direction") == "out")
+                val header = JSONObject(row.getString("initial_header"))
+                CryptoV1.parseB64(header.getString("ephemeral_key"), 32)
+                CryptoV1.parseB64(header.getString("sender_identity_dh_key"), 32)
+                CryptoV1.parseB64(header.getString("sender_identity_signing_key"), 32)
+                require(header.getInt("target_signed_prekey_id") >= 0)
+                if (!header.isNull("target_one_time_prekey_id")) {
+                    require(header.getInt("target_one_time_prekey_id") >= 0)
+                }
+                row.getBoolean("header_confirmed")
+            }
         }
         for (name in pending.keys()) {
             uid(name)

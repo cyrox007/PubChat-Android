@@ -31,7 +31,7 @@ internal class E2eeBatchDelivery(
         val (freshOwn, freshPeer) = loadFreshCheckedDirectories()
         E2eeDevicePreflight.recheck(prepared, freshOwn, freshPeer, batch)
         val message = api.sendCommittedE2eeBatch(batch)
-        check(store.acknowledgeBatch(ownerAccountUid, localDeviceUid, frontId)) {
+        check(store.acknowledgeBootstrappedBatch(ownerAccountUid, localDeviceUid, frontId)) {
             "Server accepted batch but local ACK persistence failed: reconcile state"
         }
         return message
