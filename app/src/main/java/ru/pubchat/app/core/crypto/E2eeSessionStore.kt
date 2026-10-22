@@ -211,6 +211,27 @@ internal class E2eeSessionStore(context: Context) {
         E2eeInboundBootstrap.decrypt(state, identity, checkedSender, envelope)
     }
 
+    /**
+     * Authenticate and validate the decrypted text BEFORE committing the new
+     * inbound ratchet counter. Reject malformed payloads without consuming
+     * the session/one-time prekey in durable storage.
+     */
+    fun decryptInboundText(
+        account: String,
+        device: String,
+        identity: CryptoDeviceMaterial,
+        checkedSender: PeerDirectoryInspection,
+        envelope: E2eeInboundBootstrap.Envelope,
+    ): String = mutate(account, device) { state ->
+        require(account == identity.accountUid && device == identity.deviceUid)
+        val plaintext = E2eeInboundBootstrap.decrypt(state, identity, checkedSender, envelope)
+        try {
+            E2eeInboundText.decode(plaintext)
+        } finally {
+            plaintext.fill(0)
+        }
+    }
+
     /** Only after confirmed remote device revocation, never on ordinary logout. */
     fun clearAfterServerRevocation(account: String, device: String) = synchronized(processLock) {
         file(account, device).delete()
