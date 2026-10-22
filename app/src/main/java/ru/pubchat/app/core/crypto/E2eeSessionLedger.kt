@@ -204,7 +204,7 @@ internal object E2eeSessionLedger {
             val record = requireNotNull(records.optJSONObject(counter.toString())) {
                 "Old receive key expired or unavailable"
             }
-            val pinned = record.optString("fingerprint")
+            val pinned = if (record.isNull("fingerprint")) "" else record.getString("fingerprint")
             require(pinned.isEmpty() || pinned == CryptoV1.b64(fingerprint)) {
                 "Same counter replayed with different ciphertext"
             }
