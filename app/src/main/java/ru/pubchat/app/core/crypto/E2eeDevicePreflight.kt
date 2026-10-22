@@ -82,8 +82,22 @@ internal object E2eeDevicePreflight {
         batch: E2eeFanoutBatch.Batch,
     ) {
         require(!freshOwn.requiresAcknowledgement && !freshPeer.requiresAcknowledgement)
+        checkUnchanged(prepared, freshOwn, freshPeer)
         require(batch.senderDeviceUid == prepared.senderDeviceUid &&
             batch.receiverUid == prepared.peerAccountUid)
+        val envelopeUids = batch.envelopes.map { it.recipientDeviceUid }
+        require(envelopeUids.size == prepared.requiredDeviceUids.size &&
+            envelopeUids.toSet() == prepared.requiredDeviceUids) {
+            "Encrypted packet missing an active device or contains an unknown target"
+        }
+    }
+
+    fun checkUnchanged(
+        prepared: VerifiedTargets,
+        freshOwn: PeerDirectoryInspection,
+        freshPeer: PeerDirectoryInspection,
+    ) {
+        require(!freshOwn.requiresAcknowledgement && !freshPeer.requiresAcknowledgement)
         require(freshOwn.checkpoint == prepared.ownCheckpoint &&
             freshPeer.checkpoint == prepared.peerCheckpoint) {
             "Directory changed since encryption preparation"
@@ -91,11 +105,6 @@ internal object E2eeDevicePreflight {
         require(samePublicKeys(prepared.own, freshOwn.devices) &&
             samePublicKeys(prepared.peer, freshPeer.devices)) {
             "Cryptographic identity changed before encrypted send"
-        }
-        val envelopeUids = batch.envelopes.map { it.recipientDeviceUid }
-        require(envelopeUids.size == prepared.requiredDeviceUids.size &&
-            envelopeUids.toSet() == prepared.requiredDeviceUids) {
-            "Encrypted packet missing an active device or contains an unknown target"
         }
     }
 
