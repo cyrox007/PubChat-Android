@@ -117,4 +117,41 @@ class E2eeAtomicBootstrapTest {
                 verified, UUID.randomUUID().toString(), byteArrayOf(1))
         }
     }
+
+    @Test fun lostHttpResponseKeepsExactCiphertextAndCountersAcrossRestart() {
+        val (identity, verified) = fixture()
+        val state = E2eeSessionLedger.empty(owner, ownUid)
+        val frontId = UUID.randomUUID().toString()
+        val prepared = E2eeAtomicBootstrap.prepare(
+            state, identity, verified, frontId, "retry me".toByteArray()
+        )
+        // The HTTP request may have been accepted by the server, but the
+        // response was lost. No local acknowledgement is allowed here.
+        val committed = state.toString()
+        val restarted = JSONObject(committed)
+        val pending = E2eeFanoutBatch.load(restarted, frontId)
+        assertEquals(prepared.requestBody().toString(), pending.requestBody().toString())
+        assertEquals(2, restarted.getJSONObject("pending").length())
+        assertEquals(1, restarted.getJSONObject("batches").length())
+        val sessionsBeforeRetry = restarted.getJSONObject("sessions").toString()
+        assertThrows(Exception::class.java) {
+            E2eeAtomicBootstrap.prepare(
+                restarted, identity, verified, frontId, "retry me".toByteArray()
+            )
+        }
+        assertEquals(committed, restarted.toString())
+        assertEquals(sessionsBeforeRetry, restarted.getJSONObject("sessions").toString())
+        // An authenticated exact-frontId server acceptance is the only path
+        // that may release the durable envelopes and confirm initial headers.
+        assertTrue(E2eeAtomicBootstrap.acknowledge(restarted, frontId))
+        assertEquals(0, restarted.getJSONObject("pending").length())
+        assertEquals(0, restarted.getJSONObject("batches").length())
+        for (envelope in prepared.envelopes) {
+            val session = restarted.getJSONObject("sessions").getJSONObject(
+                "out:" + envelope.recipientDeviceUid + ":" + envelope.sessionId
+            )
+            assertTrue(session.getBoolean("header_confirmed"))
+        }
+        E2eeSessionLedger.validate(restarted, owner, ownUid)
+    }
 }
