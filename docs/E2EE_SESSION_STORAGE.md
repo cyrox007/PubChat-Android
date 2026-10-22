@@ -46,3 +46,13 @@ This prevents **local** partial fan-out commits, but it does not yet implement a
 - `E2eeBatchDelivery` no longer accepts an arbitrary `Unit` success callback. It requires typed `VerifiedTargets`, obtains fresh checked own+peer snapshots, and compares checkpoint identities, key material and complete envelope recipients before POST.
 - Signed-prekey verification and peer directory history checking are performed by earlier standalone components; callers MUST obtain trusted, persisted inspections before constructing a preflight.
 - **Not ready for real transmission:** the inspected snapshots are not yet automatically fetched or joined to session bootstrap / durable initial headers; do not call this from Messenger UI. Current server-side directory proofs do not provide external witness protection. Tests in this milestone are offline contract checks, not live server/Web↔Android integration.
+
+
+## Authenticated own/peer directory acquisition
+
+- `E2eeTrustedDirectoryLoader.load` obtains the durable local Account-scoped device identity, the current **own and peer** directory snapshots and any bounded history required to verify continuity from stored checkpoints.
+- An unacknowledged changed directory is blocked; a first-seen directory is TOFU rather than safety-number verified.
+- Only after both checks does it claim a peer prekey bundle, validate Ed25519 signed-prekeys and exact device identity bindings, and re-fetch both directories to catch changes during claim.
+- After the final consistency check it durably saves the continuity checkpoints. Keystore read/write failures are fatal, not an opportunity to silently reinitialize.
+- `refreshForSend` compares fresh checked directories with the prepared immutable preflight immediately before a pending ciphertext batch is submitted. The server still performs final active-device membership validation at POST.
+- **Still no UI send integration or automatic session creation.** Initial 3DH headers, all-device session creation in a crash-safe transaction, handling prekey consumption on failures, and real device roundtrip tests are the next milestones.
