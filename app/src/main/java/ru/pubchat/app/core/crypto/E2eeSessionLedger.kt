@@ -2,6 +2,7 @@ package ru.pubchat.app.core.crypto
 
 import org.json.JSONObject
 import java.util.UUID
+import java.security.MessageDigest
 
 /**
  * Offline E2EE ledger. Every transition MUST be committed with AtomicFile
@@ -48,6 +49,31 @@ internal object E2eeSessionLedger {
                 }
                 row.getBoolean("header_confirmed")
             }
+        }
+        // Backward-compatible optional bounded ratchet key cache, scoped to each
+        // sender device and session. No plaintext is ever stored on disk.
+        val receiveKeys = root.optJSONObject("receive_keys")
+        if (receiveKeys != null) {
+            require(receiveKeys.length() <= 400)
+            var keyCount = 0
+            for (sessionName in receiveKeys.keys()) {
+                val session = sessions.getJSONObject(sessionName)
+                require(session.getString("direction") == "in")
+                val entries = receiveKeys.getJSONObject(sessionName)
+                require(entries.length() <= 128)
+                keyCount += entries.length()
+                for (counter in entries.keys()) {
+                    val numeric = counter.toLongOrNull()
+                    require(numeric != null && numeric >= 0 && numeric < session.getLong("next") &&
+                        numeric.toString() == counter)
+                    val row = entries.getJSONObject(counter)
+                    CryptoV1.parseB64(row.getString("key"), 32)
+                    if (!row.isNull("fingerprint")) {
+                        CryptoV1.parseB64(row.getString("fingerprint"), 32)
+                    }
+                }
+            }
+            require(keyCount <= 512)
         }
         val consumed = root.optJSONObject("consumed_one_time_prekeys")
         if (consumed != null) {
@@ -145,27 +171,87 @@ internal object E2eeSessionLedger {
         return root.getJSONObject("pending").remove(packetId) != null
     }
 
-    /** An inbound counter may only advance AFTER authenticating the ciphertext. */
+    /**
+     * Crash-durable, bounded receive ratchet. Cached previously authenticated
+     * ciphertext may be decrypted again for history after an app restart, but
+     * changing nonce/ciphertext at the same counter is rejected (AEAD + hash).
+     * Skipped keys can authenticate late arrivals within a 64-message window.
+     * Caller wraps this mutation in one AtomicFile commit before UI display.
+     */
     fun decryptNext(
         root: JSONObject, sender: String, recipient: String, sessionId: String,
         counter: Long, nonce: String, ciphertext: String,
     ): ByteArray {
-        val session = root.getJSONObject("sessions").getJSONObject(key("in", sender, sessionId))
+        require(counter in 0..2_147_483_647L)
+        val sessionName = key("in", sender, sessionId)
+        val session = root.getJSONObject("sessions").getJSONObject(sessionName)
         val current = session.getLong("next")
-        require(counter == current) { "Replay, missing or reordered message: explicit recovery required" }
-        require(counter < Long.MAX_VALUE)
-        val chain = CryptoV1.parseB64(session.getString("chain"), 32)
-        val (messageKey, nextChain) = E2eeSessionCrypto.step(chain, counter)
+        require(counter <= current || counter - current <= 64) {
+            "Receive counter gap exceeds 64"
+        }
+        val nonceBytes = CryptoV1.parseB64(nonce, 12)
+        val cipherBytes = java.util.Base64.getUrlDecoder().decode(ciphertext)
+        require(cipherBytes.size >= 16 && CryptoV1.b64(cipherBytes) == ciphertext)
+        val fingerprint = MessageDigest.getInstance("SHA-256").digest(nonceBytes + cipherBytes)
+        val aad = E2eeSessionCrypto.aad(sender, recipient, sessionId, counter)
+        val cache = root.optJSONObject("receive_keys") ?: JSONObject().also {
+            root.put("receive_keys", it)
+        }
+        val records = cache.optJSONObject(sessionName) ?: JSONObject().also {
+            cache.put(sessionName, it)
+        }
+        if (counter < current) {
+            val record = requireNotNull(records.optJSONObject(counter.toString())) {
+                "Old receive key expired or unavailable"
+            }
+            val pinned = if (record.isNull("fingerprint")) "" else record.getString("fingerprint")
+            require(pinned.isEmpty() || pinned == CryptoV1.b64(fingerprint)) {
+                "Same counter replayed with different ciphertext"
+            }
+            val messageKey = CryptoV1.parseB64(record.getString("key"), 32)
+            return try {
+                val plaintext = E2eeSessionCrypto.open(messageKey,
+                    E2eeSessionCrypto.Sealed(nonceBytes, cipherBytes), aad)
+                // Pin a delayed gap key to its first authenticated ciphertext.
+                if (pinned.isEmpty()) record.put("fingerprint", CryptoV1.b64(fingerprint))
+                plaintext
+            } finally { messageKey.fill(0) }
+        }
+        require(counter - current <= 64)
+        require(records.length() + (counter - current + 1) <= 128) {
+            "Session receive cache is full; explicit recovery required"
+        }
+        val allRecords = cache.keys().asSequence().sumOf { cache.getJSONObject(it).length() }
+        require(allRecords + (counter - current + 1) <= 512) {
+            "Receive key storage limit reached"
+        }
+        val originalChain = CryptoV1.parseB64(session.getString("chain"), 32)
+        var chain = originalChain
+        var result: ByteArray? = null
+        val staged = JSONObject()
         try {
-            val cipherBytes = java.util.Base64.getUrlDecoder().decode(ciphertext)
-            require(cipherBytes.size >= 16 && CryptoV1.b64(cipherBytes) == ciphertext)
-            val plaintext = E2eeSessionCrypto.open(messageKey,
-                E2eeSessionCrypto.Sealed(CryptoV1.parseB64(nonce, 12), cipherBytes),
-                E2eeSessionCrypto.aad(sender, recipient, sessionId, counter))
-            session.put("chain", CryptoV1.b64(nextChain)).put("next", counter + 1)
-            return plaintext
+            for (i in current..counter) {
+                val (messageKey, advanced) = E2eeSessionCrypto.step(chain, i)
+                try {
+                    if (i == counter) {
+                        // No state changes until AEAD succeeds.
+                        result = E2eeSessionCrypto.open(messageKey,
+                            E2eeSessionCrypto.Sealed(nonceBytes, cipherBytes), aad)
+                    }
+                    staged.put(i.toString(), JSONObject()
+                        .put("key", CryptoV1.b64(messageKey))
+                        .put("fingerprint", if (i == counter)
+                            CryptoV1.b64(fingerprint) else JSONObject.NULL))
+                } finally { messageKey.fill(0) }
+                if (chain !== originalChain) chain.fill(0)
+                chain = advanced
+            }
+            for (i in staged.keys()) records.put(i, staged.getJSONObject(i))
+            session.put("chain", CryptoV1.b64(chain)).put("next", counter + 1)
+            return requireNotNull(result)
         } finally {
-            chain.fill(0); messageKey.fill(0); nextChain.fill(0)
+            chain.fill(0)
+            if (chain !== originalChain) originalChain.fill(0)
         }
     }
 }
