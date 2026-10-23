@@ -750,6 +750,65 @@ class AppController(context: Context) {
     }
 
     /**
+     * Native E2EE send uses the same immutable ciphertext batch across retries.
+     * Never falls back to plaintext when crypto, trust or transport fails.
+     */
+    fun sendEncryptedPrivateMessage(
+        ownerUid: String,
+        peerUid: String,
+        content: String,
+        frontId: String,
+        onResult: (Boolean, String?) -> Unit,
+    ) {
+        if (content.isBlank() || frontId.isBlank()) {
+            onResult(false, "Введите сообщение и идентификатор отправки")
+            return
+        }
+        val epoch = messengerEpoch
+        val subscription = messengerSubscription
+        executor.execute {
+            runCatching {
+                val policy = authenticated { api.messengerEncryption(peerUid) }
+                ru.pubchat.app.core.network.requireE2eeDeliveryPolicy(policy)
+                val local = requireNotNull(cryptoDeviceStore.read(ownerUid)) {
+                    "Ключи устройства не подготовлены"
+                }
+                val loader = ru.pubchat.app.core.network.E2eeTrustedDirectoryLoader(
+                    api, cryptoDeviceStore, peerDirectoryTrustStore)
+                val verified = authenticated { loader.load(ownerUid, peerUid) }
+                // A frontId is never re-encrypted: use an already committed batch
+                // on retry, even after a process restart.
+                val existing = runCatching {
+                    e2eeSessionStore.pendingBatch(ownerUid, local.deviceUid, frontId)
+                }.getOrNull()
+                if (existing == null) {
+                    e2eeSessionStore.bootstrapAndPrepareBatch(
+                        ownerUid, local.deviceUid, local, verified, frontId,
+                        content.trim().toByteArray(Charsets.UTF_8))
+                } else {
+                    require(existing.receiverUid == peerUid) { "Pending E2EE batch belongs to another dialog" }
+                }
+                authenticated {
+                    ru.pubchat.app.core.network.E2eeBatchDelivery(api, e2eeSessionStore)
+                        .submitPending(ownerUid, local.deviceUid, frontId, verified) {
+                            loader.refreshForSend(verified)
+                        }
+                }
+            }.onSuccess {
+                main.post {
+                    if (epoch == messengerEpoch && messengerSubscription === subscription &&
+                        subscription?.activePeerUid == peerUid) onResult(true, null)
+                }
+            }.onFailure { error ->
+                main.post {
+                    if (epoch == messengerEpoch) onResult(false,
+                        "E2EE: " + (error.message ?: "Отправка не подтверждена, повторите с тем же пакетом"))
+                }
+            }
+        }
+    }
+
+    /**
      * Explicit crypto-device preparation, never auto-invoked during login.
      * Identity is persisted before the first request, so network retries reuse
      * exactly the same immutable device UID and signing/X25519 keys.
