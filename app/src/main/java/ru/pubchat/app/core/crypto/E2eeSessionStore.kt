@@ -171,6 +171,12 @@ internal class E2eeSessionStore(context: Context) {
     fun acknowledgeBootstrappedBatch(account: String, device: String, frontId: String): Boolean =
         mutate(account, device) { state -> E2eeAtomicBootstrap.acknowledge(state, frontId) }
 
+    /** Distinguish an absent batch from corrupted durable state; never regenerate on read failure. */
+    fun hasPendingBatch(account: String, device: String, frontId: String): Boolean =
+        synchronized(processLock) {
+            read(account, device).optJSONObject("batches")?.has(frontId) == true
+        }
+
     /** Always re-read the exact committed envelopes before any HTTP retry. */
     fun pendingBatch(account: String, device: String, frontId: String): E2eeFanoutBatch.Batch =
         synchronized(processLock) { E2eeFanoutBatch.load(read(account, device), frontId) }
