@@ -778,15 +778,15 @@ class AppController(context: Context) {
                 val verified = authenticated { loader.load(ownerUid, peerUid) }
                 // A frontId is never re-encrypted: use an already committed batch
                 // on retry, even after a process restart.
-                val existing = runCatching {
-                    e2eeSessionStore.pendingBatch(ownerUid, local.deviceUid, frontId)
-                }.getOrNull()
-                if (existing == null) {
+                val pendingExists = e2eeSessionStore.hasPendingBatch(
+                    ownerUid, local.deviceUid, frontId)
+                if (!pendingExists) {
                     e2eeSessionStore.bootstrapAndPrepareBatch(
                         ownerUid, local.deviceUid, local, verified, frontId,
                         content.trim().toByteArray(Charsets.UTF_8))
                 } else {
-                    require(existing.receiverUid == peerUid) { "Pending E2EE batch belongs to another dialog" }
+                    val previous = e2eeSessionStore.pendingBatch(ownerUid, local.deviceUid, frontId)
+                    require(previous.receiverUid == peerUid) { "Pending E2EE batch belongs to another dialog" }
                 }
                 authenticated {
                     ru.pubchat.app.core.network.E2eeBatchDelivery(api, e2eeSessionStore)
