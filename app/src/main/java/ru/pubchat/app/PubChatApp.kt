@@ -1153,16 +1153,32 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             dmPending = pending
                             dmSending = true
                             messengerError = null
-                            controller.sendPrivateMessage(peer, sentText, pending.frontId) { queued, failure ->
-                                if (!queued && dmPending?.frontId == pending.frontId) {
-                                    dmPending = null
-                                    dmSending = false
-                                    if (activeDialog?.partnerUid == peer) {
-                                        messengerError = failure ?: "Сообщение не отправлено"
-                                        checkMessengerEncryption(peer)
+                            val encrypted = dmEncryption?.effectiveMode ==
+                                ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE
+                            val completed: (Boolean, String?) -> Unit = { accepted, failure ->
+                                if (dmPending?.frontId == pending.frontId) {
+                                    if (accepted && encrypted) {
+                                        // HTTP crypto endpoint returned a verified server ACK.
+                                        if (activeDialog?.partnerUid == peer && pending.shouldClearDraft(dmDraft)) dmDraft = ""
+                                        dmPending = null
+                                        dmSending = false
+                                        messengerError = null
+                                    } else if (!accepted) {
+                                        dmPending = null
+                                        dmSending = false
+                                        if (activeDialog?.partnerUid == peer) {
+                                            messengerError = failure ?: "Сообщение не отправлено"
+                                            checkMessengerEncryption(peer)
+                                        }
                                     }
                                 }
-                                // A queued websocket frame is NOT a server acknowledgement.
+                            }
+                            if (encrypted) {
+                                controller.sendEncryptedPrivateMessage(
+                                    state.accountUid, peer, sentText, pending.frontId, completed)
+                            } else {
+                                // The server rechecks policy before every plaintext send.
+                                controller.sendPrivateMessage(peer, sentText, pending.frontId, completed)
                             }
                         }
                     },
