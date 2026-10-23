@@ -24,7 +24,7 @@ class MessengerEncryptionPolicyTest {
         val policy = parseMessengerEncryptionStatus(response("required", "e2ee", false))
         assertFalse(policy.canUseLegacyTransport)
         assertFalse(policy.cryptoReady)
-        assertTrue(policy.explanation.contains("заблокированы"))
+        assertTrue(policy.explanation.contains("заблокирована"))
         assertThrows(IllegalStateException::class.java) { requirePlaintextMessengerTransport(policy) }
     }
 
