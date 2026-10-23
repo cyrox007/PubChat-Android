@@ -1839,7 +1839,7 @@ private fun MessengerChatContent(
         val transportReady = encryption?.canUseLegacyTransport == true ||
             (encryption?.effectiveMode ==
                 ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE &&
-                encryption.cryptoReady)
+                encryption?.cryptoReady == true)
         val sendEnabled = connection == "connected" && transportReady &&
             !encryptionLoading && !sending && encryptionError == null
         Text(
