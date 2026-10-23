@@ -1836,8 +1836,12 @@ private fun MessengerChatContent(
             TextButton(onClick = { onCall(false) }, enabled = dialog != null && connection == "connected") { Text("☎") }
             TextButton(onClick = { onCall(true) }, enabled = dialog != null && connection == "connected") { Text("Видео") }
         }
-        val plaintextAllowed = encryption?.canUseLegacyTransport == true
-        val sendEnabled = connection == "connected" && plaintextAllowed && !encryptionLoading && !sending
+        val transportReady = encryption?.canUseLegacyTransport == true ||
+            (encryption?.effectiveMode ==
+                ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE &&
+                encryption.cryptoReady)
+        val sendEnabled = connection == "connected" && transportReady &&
+            !encryptionLoading && !sending && encryptionError == null
         Text(
             if (encryptionLoading) "Проверяем политику шифрования. Отправка приостановлена."
             else encryptionError ?: encryption?.explanation
