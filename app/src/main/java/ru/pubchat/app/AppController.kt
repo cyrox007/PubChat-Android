@@ -1010,7 +1010,7 @@ class AppController(context: Context) {
      * inbound device envelope. Never read media key/nonce from server metadata.
      * Caller owns the private preview file and deletes it on close/navigation.
      */
-    fun previewEncryptedAttachment(
+    internal fun previewEncryptedAttachment(
         attachment: E2eeInboundPayload.Attachment,
         onResult: (java.io.File?, String?) -> Unit,
     ) {
