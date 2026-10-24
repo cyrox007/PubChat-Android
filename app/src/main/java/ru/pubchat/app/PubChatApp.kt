@@ -1205,6 +1205,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onSaveAttachment = { attachment, destination, done ->
                         controller.saveAttachment(attachment, destination, done)
                     },
+                    onPreviewAttachment = { attachment, done ->
+                        controller.previewAttachment(attachment, done)
+                    },
                     onSend = send@{
                         if (roomReplySending || draft.isBlank()) return@send
                         val source = roomReply
@@ -1275,6 +1278,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onAcknowledgeDirectory = ::acknowledgeDirectory,
                     onSaveAttachment = { attachment, destination, done ->
                         controller.saveAttachment(attachment, destination, done)
+                    },
+                    onPreviewAttachment = { attachment, done ->
+                        controller.previewAttachment(attachment, done)
                     },
                     draft = dmDraft,
                     onDraft = { dmDraft = it },
@@ -1877,6 +1883,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
     reply: PubChatApi.ChatMessage?, sending: Boolean, onReply: (PubChatApi.ChatMessage) -> Unit, onCancelReply: () -> Unit,
     onAttach: (android.net.Uri) -> Unit, onVoiceNote: (java.io.File) -> Unit,
     onSaveAttachment: (PubChatApi.Attachment, android.net.Uri, (String?) -> Unit) -> Unit,
+    onPreviewAttachment: (PubChatApi.Attachment, (java.io.File?, String?) -> Unit) -> Unit,
     onVoiceError: (String) -> Unit, onSend: () -> Unit) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -1930,7 +1937,8 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                 RoomMessageCard(message, message.senderUid == currentAccountUid, source,
                     onReplyJump = source?.let { { scope.launch { listState.animateScrollToItem(messages.indexOf(it)) }; Unit } },
                     onReply = if (message.contentType != "deleted") { { onReply(message) } } else null,
-                    onSaveAttachment = onSaveAttachment)
+                    onSaveAttachment = onSaveAttachment,
+                    onPreviewAttachment = onPreviewAttachment)
             }
         }
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -2174,6 +2182,7 @@ private fun MessengerChatContent(
     onCheckDirectory: () -> Unit,
     onAcknowledgeDirectory: () -> Unit,
     onSaveAttachment: (PubChatApi.Attachment, android.net.Uri, (String?) -> Unit) -> Unit,
+    onPreviewAttachment: (PubChatApi.Attachment, (java.io.File?, String?) -> Unit) -> Unit,
     draft: String,
     onDraft: (String) -> Unit,
     selectedUid: String?,
@@ -2250,7 +2259,8 @@ private fun MessengerChatContent(
                     ) else message
                     RoomMessageCard(safeMessage, message.senderUid == currentAccountUid, null,
                         onSelect = { onSelect(message.uid) },
-                        onSaveAttachment = onSaveAttachment)
+                        onSaveAttachment = onSaveAttachment,
+                        onPreviewAttachment = onPreviewAttachment)
                     if (selectedUid == message.uid && message.contentType != "e2ee") {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { onActionMode("reply") }) { Text("Ответ") }
