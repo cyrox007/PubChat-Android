@@ -253,9 +253,7 @@ private fun MessageAttachment(attachment: PubChatApi.Attachment, contentType: St
                             factory = { ctx ->
                                 VideoView(ctx).apply {
                                     setVideoURI(Uri.parse(url))
-                                    setMediaController(android.widget.MediaController(ctx).apply {
-                                        setAnchorView(this@apply)
-                                    })
+                                    setMediaController(android.widget.MediaController(ctx))
                                     setOnPreparedListener { player -> player.isLooping = false; start() }
                                 }
                             },
