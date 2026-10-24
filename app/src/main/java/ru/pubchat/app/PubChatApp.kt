@@ -1940,6 +1940,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             }
             runCatching { captureVideo.launch(intent) }
                 .onFailure { onVoiceError("Не удалось открыть камеру: " + (it.message ?: "неизвестная ошибка")) }
+            Unit
         }
         pendingVideo?.let { videoUri ->
             AlertDialog(
