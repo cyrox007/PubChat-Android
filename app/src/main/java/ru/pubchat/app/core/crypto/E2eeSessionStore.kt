@@ -152,8 +152,9 @@ internal class E2eeSessionStore(context: Context) {
         ownDevices: List<E2eeFanoutBatch.Target>,
         peerDevices: List<E2eeFanoutBatch.Target>,
         plaintext: ByteArray,
+        attachmentUid: String? = null,
     ): E2eeFanoutBatch.Batch = mutate(account, device) { state ->
-        E2eeFanoutBatch.prepare(state, frontId, device, receiverUid, ownDevices, peerDevices, plaintext)
+        E2eeFanoutBatch.prepare(state, frontId, device, receiverUid, ownDevices, peerDevices, plaintext, attachmentUid)
     }
 
     /** New 3DH sessions + headers + first encrypted batch, one durable transaction. */
@@ -162,9 +163,10 @@ internal class E2eeSessionStore(context: Context) {
         local: CryptoDeviceMaterial,
         verified: E2eeDevicePreflight.VerifiedTargets,
         frontId: String, plaintext: ByteArray,
+        attachmentUid: String? = null,
     ): E2eeFanoutBatch.Batch = mutate(account, device) { state ->
         require(account == local.accountUid && device == local.deviceUid)
-        E2eeAtomicBootstrap.prepare(state, local, verified, frontId, plaintext)
+        E2eeAtomicBootstrap.prepare(state, local, verified, frontId, plaintext, attachmentUid)
     }
 
     /** Confirm first headers only together with the entire server-accepted batch. */
