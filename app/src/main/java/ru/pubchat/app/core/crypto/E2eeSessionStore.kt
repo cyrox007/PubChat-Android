@@ -177,6 +177,15 @@ internal class E2eeSessionStore(context: Context) {
             read(account, device).optJSONObject("batches")?.has(frontId) == true
         }
 
+    /** Durable recovery index, containing IDs only; plaintext is never stored in UI state. */
+    fun pendingBatchIdsForPeer(account: String, device: String, peer: String): List<String> =
+        synchronized(processLock) {
+            val batches = read(account, device).optJSONObject("batches") ?: JSONObject()
+            batches.keys().asSequence().filter { id ->
+                batches.getJSONObject(id).getString("receiver_uid") == peer
+            }.sorted().toList()
+        }
+
     /** Always re-read the exact committed envelopes before any HTTP retry. */
     fun pendingBatch(account: String, device: String, frontId: String): E2eeFanoutBatch.Batch =
         synchronized(processLock) { E2eeFanoutBatch.load(read(account, device), frontId) }
