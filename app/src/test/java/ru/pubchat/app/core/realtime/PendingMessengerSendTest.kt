@@ -19,4 +19,14 @@ class PendingMessengerSendTest {
         assertTrue(pending.shouldClearDraft("  Привет  "))
         assertFalse(pending.shouldClearDraft("Привет, ещё текст"))
     }
+    @Test
+    fun encryptedRetryKeepsOriginalFrontIdOnlyForIdenticalDraftAndPeer() {
+        val pending = PendingMessengerSend("fixed-front-id", "peer-1", "Привет", encrypted = true)
+        assertTrue(pending.canRetryEncrypted("peer-1", "  Привет  "))
+        assertFalse(pending.canRetryEncrypted("peer-2", "Привет"))
+        assertFalse(pending.canRetryEncrypted("peer-1", "Новый текст"))
+        assertFalse(PendingMessengerSend("plain", "peer-1", "Привет")
+            .canRetryEncrypted("peer-1", "Привет"))
+        assertTrue(pending.matchesEcho("fixed-front-id", "peer-1"))
+    }
 }

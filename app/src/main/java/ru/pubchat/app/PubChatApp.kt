@@ -656,7 +656,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                 messengerConnection = it
                 // Transport loss leaves draft intact: delivery outcome is unknown.
                 if (it == "disconnected" || it == "restricted" || it == "reconnecting") {
-                    dmPending = null
+                    if (dmPending?.encrypted != true) dmPending = null
                     dmSending = false
                 }
             },
@@ -1149,12 +1149,18 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         val peer = activeDialog?.partnerUid
                         val sentText = dmDraft
                         if (peer != null && sentText.isNotBlank() && !dmSending) {
-                            val pending = PendingMessengerSend(java.util.UUID.randomUUID().toString(), peer, sentText.trim())
+                            val encrypted = dmEncryption?.effectiveMode ==
+                                ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE
+                            val previous = dmPending?.takeIf { it.encrypted }
+                            if (previous != null && (!encrypted || !previous.canRetryEncrypted(peer, sentText))) {
+                                messengerError = "Незавершённая E2EE-отправка: вернитесь к прежнему тексту и диалогу для безопасного повтора."
+                                return@MessengerChatContent
+                            }
+                            val pending = previous ?: PendingMessengerSend(
+                                java.util.UUID.randomUUID().toString(), peer, sentText.trim(), encrypted)
                             dmPending = pending
                             dmSending = true
                             messengerError = null
-                            val encrypted = dmEncryption?.effectiveMode ==
-                                ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE
                             val completed: (Boolean, String?) -> Unit = { accepted, failure ->
                                 if (dmPending?.frontId == pending.frontId) {
                                     if (accepted && encrypted) {
@@ -1164,7 +1170,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                                         dmSending = false
                                         messengerError = null
                                     } else if (!accepted) {
-                                        dmPending = null
+                                        // Keep E2EE frontId for exact ciphertext retry after ambiguous HTTP failure.
+                                        if (!encrypted) dmPending = null
                                         dmSending = false
                                         if (activeDialog?.partnerUid == peer) {
                                             messengerError = failure ?: "Сообщение не отправлено"
