@@ -86,6 +86,14 @@ import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
 import ru.pubchat.app.core.network.MessengerEncryptionStatus
 import ru.pubchat.app.core.crypto.PeerDirectoryInspection
+import ru.pubchat.app.core.crypto.E2eeInboundPayload
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTransformGestures
+import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import ru.pubchat.app.core.realtime.PendingMessengerSend
 import ru.pubchat.app.ui.components.SocialAvailabilityControls
 import ru.pubchat.app.ui.components.FriendshipHubContent
@@ -469,7 +477,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var messengerConnection by remember { mutableStateOf("idle") }
     var activeDialog by remember { mutableStateOf<PubChatApi.DialogSummary?>(null) }
     var conversations by remember { mutableStateOf<Map<String, List<PubChatApi.ChatMessage>>>(emptyMap()) }
-    var e2eeDecrypted by remember { mutableStateOf<Map<String, Map<String, String>>>(emptyMap()) }
+    var e2eeDecrypted by remember { mutableStateOf<Map<String, Map<String, E2eeInboundPayload>>>(emptyMap()) }
     var e2eeReceiveError by remember { mutableStateOf<String?>(null) }
     var onlineStatuses by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var dmDraft by remember { mutableStateOf("") }
@@ -1242,6 +1250,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     dialog = activeDialog,
                     messages = conversations[activeDialog?.partnerUid].orEmpty(),
                     decryptedE2ee = e2eeDecrypted[state.accountUid + ":" + activeDialog?.partnerUid].orEmpty(),
+                    onEncryptedPreview = { attachment, done ->
+                        controller.previewEncryptedAttachment(attachment, done)
+                    },
                     e2eeReceiveError = e2eeReceiveError,
                     onRetryE2ee = { activeDialog?.partnerUid?.let { uid ->
                         decryptDialogMessages(uid, conversations[uid].orEmpty())
@@ -2194,7 +2205,8 @@ private fun MessengerChatContent(
     onCall: (Boolean) -> Unit,
     dialog: PubChatApi.DialogSummary?,
     messages: List<PubChatApi.ChatMessage>,
-    decryptedE2ee: Map<String, String>,
+    decryptedE2ee: Map<String, E2eeInboundPayload>,
+    onEncryptedPreview: (E2eeInboundPayload.Attachment, (File?, String?) -> Unit) -> Unit,
     e2eeReceiveError: String?,
     onRetryE2ee: () -> Unit,
     pendingEncryptedIds: List<String>,
@@ -2285,15 +2297,26 @@ private fun MessengerChatContent(
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Можно начать с простого «привет»." else "Загружаем личный разговор…") }
             items(messages, key = PubChatApi.ChatMessage::uid) { message ->
                 Column {
+                    val trusted = decryptedE2ee[message.uid]
                     val safeMessage = if (message.contentType == "e2ee") message.copy(
-                        content = decryptedE2ee[message.uid]?.let { "🔒 $it" }
-                            ?: "🔒 E2EE-сообщение: не удалось проверить или расшифровать.",
+                        content = when (trusted) {
+                            is E2eeInboundPayload.Text -> "🔒 " + trusted.value
+                            is E2eeInboundPayload.Attachment ->
+                                "🔒 Защищённое вложение: " + trusted.name
+                            else -> "🔒 E2EE-сообщение: не удалось проверить или расшифровать."
+                        },
                         attachmentName = null, attachments = emptyList(), replyContent = null,
                     ) else message
                     RoomMessageCard(safeMessage, message.senderUid == currentAccountUid, null,
                         onSelect = { onSelect(message.uid) },
                         onSaveAttachment = onSaveAttachment,
                         onPreviewAttachment = onPreviewAttachment)
+                    if (trusted is E2eeInboundPayload.Attachment) {
+                        TextButton(
+                            onClick = { startEncryptedPreview(trusted) },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        ) { Text("🔒 Открыть зашифрованное вложение") }
+                    }
                     if (selectedUid == message.uid && message.contentType != "e2ee") {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { onActionMode("reply") }) { Text("Ответ") }
