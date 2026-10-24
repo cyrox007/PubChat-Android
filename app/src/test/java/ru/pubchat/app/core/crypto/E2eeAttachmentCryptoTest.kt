@@ -68,4 +68,48 @@ class E2eeAttachmentCryptoTest {
             E2eeAttachmentCrypto.encryptedPayload(result.descriptor, "x".repeat(4097))
         }
     }
+    @Test fun inboundAttachmentMetadataUsesAuthenticatedEncryptedEnvelope() {
+        val sealed = E2eeAttachmentCrypto.seal(uid, raw, "photo.png", "image/png", "image")
+        val encoded = E2eeAttachmentCrypto.encryptedPayload(sealed.descriptor, "Подпись")
+        val item = E2eeInboundPayload.decode(encoded)
+        assertTrue(item is E2eeInboundPayload.Attachment)
+        item as E2eeInboundPayload.Attachment
+        assertEquals(uid, item.uid)
+        assertEquals("image/png", item.mime)
+        assertEquals("Подпись", item.caption)
+        assertEquals("photo.png", item.name)
+        assertArrayEquals(raw, E2eeAttachmentCrypto.open(item.authenticatedDescriptor(),
+            sealed.ciphertext))
+        val payload = JSONObject().put("type", "text").put("text", "Шифрованный текст")
+        assertEquals("Шифрованный текст",
+            (E2eeInboundPayload.decode(payload.toString().toByteArray()) as
+                E2eeInboundPayload.Text).value)
+    }
+
+    @Test fun malformedInboundAttachmentFailsClosedBeforeRatchetCommit() {
+        val sealed = E2eeAttachmentCrypto.seal(uid, raw, "clip.mp4", "video/mp4", "video")
+        val valid = JSONObject(String(E2eeAttachmentCrypto.encryptedPayload(sealed.descriptor)))
+        fun broken(update: (JSONObject) -> Unit) {
+            val obj = JSONObject(valid.toString())
+            update(obj.getJSONObject("attachment"))
+            assertThrows(Exception::class.java) {
+                E2eeInboundPayload.decode(obj.toString().toByteArray())
+            }
+        }
+        broken { it.put("uid", java.util.UUID.randomUUID().toString().uppercase()) }
+        broken { it.put("mime_type", "text/html") }
+        broken { it.put("name", "../secret") }
+        broken { it.put("size", E2eeAttachmentCrypto.MAX_PLAINTEXT_BYTES + 1) }
+        broken { it.put("key", "bad") }
+        broken { it.put("nonce", "bad") }
+        broken { it.put("ciphertext_sha256", "0") }
+        broken { it.put("version", "unknown") }
+        assertThrows(Exception::class.java) {
+            E2eeInboundPayload.decode(JSONObject().put("type", "unsupported")
+                .toString().toByteArray())
+        }
+        assertThrows(Exception::class.java) {
+            E2eeInboundPayload.decode(ByteArray(16_385))
+        }
+    }
 }
