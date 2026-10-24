@@ -7,6 +7,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.widget.VideoView
+import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.background
@@ -53,6 +58,7 @@ internal fun RoomMessageCard(
     onReply: (() -> Unit)? = null,
     onSelect: (() -> Unit)? = null,
     onSaveAttachment: ((PubChatApi.Attachment, Uri, (String?) -> Unit) -> Unit)? = null,
+    onPreviewAttachment: ((PubChatApi.Attachment, (File?, String?) -> Unit) -> Unit)? = null,
 ) {
     // The bubble owns only content and metadata; a 48dp touch target for reply
     // sits *beside* it instead of stretching every short message to 100+dp.
@@ -160,7 +166,7 @@ internal fun RoomMessageCard(
                         style = MaterialTheme.typography.bodyMedium)
                 } else {
                     message.attachments.forEach { attachment ->
-                        MessageAttachment(attachment, message.contentType, onSaveAttachment)
+                        MessageAttachment(attachment, message.contentType, onSaveAttachment, onPreviewAttachment)
                     }
                     if (message.content.isNotBlank() &&
                         message.attachments.none { it.url == message.content }) {
@@ -202,6 +208,7 @@ private fun MessageAttachment(
     attachment: PubChatApi.Attachment,
     contentType: String,
     onSaveAttachment: ((PubChatApi.Attachment, Uri, (String?) -> Unit) -> Unit)?,
+    onPreviewAttachment: ((PubChatApi.Attachment, (File?, String?) -> Unit) -> Unit)?,
 ) {
     val url = publicMediaUrl(attachment.url)
     val context = LocalContext.current
@@ -209,6 +216,47 @@ private fun MessageAttachment(
     var savedUri by remember(attachment.url) { mutableStateOf<Uri?>(null) }
     var saving by remember(attachment.url) { mutableStateOf(false) }
     var preview by remember(attachment.url) { mutableStateOf<String?>(null) }
+    var previewLoading by remember(attachment.url) { mutableStateOf(false) }
+    var previewFailure by remember(attachment.url) { mutableStateOf<String?>(null) }
+    var previewEpoch by remember(attachment.url) { mutableIntStateOf(0) }
+    val previewFile = remember(attachment.url) { mutableStateOf<File?>(null) }
+    val alive = remember(attachment.url) { AtomicBoolean(true) }
+    DisposableEffect(attachment.url) {
+        alive.set(true)
+        onDispose {
+            alive.set(false)
+            previewEpoch++
+            previewFile.value?.delete()
+            previewFile.value = null
+        }
+    }
+    val authenticated = ru.pubchat.app.core.network.authorizedMediaUrl(
+        BuildConfig.API_BASE_URL, attachment.url) != null
+    fun closePreview() {
+        previewEpoch++
+        preview = null
+        previewLoading = false
+        previewFailure = null
+        previewFile.value?.delete()
+        previewFile.value = null
+    }
+    fun openPreview(kind: String) {
+        closePreview()
+        preview = kind
+        if (authenticated && onPreviewAttachment != null) {
+            val epoch = previewEpoch
+            previewLoading = true
+            onPreviewAttachment(attachment) { file, failure ->
+                if (!alive.get() || previewEpoch != epoch || preview != kind) {
+                    file?.delete()
+                } else {
+                    previewLoading = false
+                    previewFailure = failure
+                    previewFile.value = file
+                }
+            }
+        }
+    }
     val fileName = attachment.name.substringAfterLast('/').substringAfterLast('\\')
         .filter { it != '/' && it != '\\' && it.code >= 32 }.take(128)
         .ifBlank { "pubchat-file" }
@@ -229,11 +277,15 @@ private fun MessageAttachment(
     val image = attachment.mimeType?.startsWith("image/") == true || contentType == "image"
     val audio = attachment.mimeType?.startsWith("audio/") == true || contentType in setOf("audio", "voice")
     val video = attachment.mimeType?.startsWith("video/") == true || contentType == "video"
-    if (image) SubcomposeAsyncImage(
+    if (image && authenticated && onPreviewAttachment != null) {
+        TextButton(onClick = { openPreview("image") }, enabled = !previewLoading) {
+            Text("🖼 Просмотреть изображение", maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    } else if (image) SubcomposeAsyncImage(
         url, attachment.name,
         Modifier.fillMaxWidth().heightIn(min = 64.dp, max = 180.dp)
             .clip(RoundedCornerShape(10.dp))
-            .clickable { preview = "image" },
+            .clickable { openPreview("image") },
         contentScale = ContentScale.Fit,
         loading = { Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(24.dp))
@@ -242,8 +294,13 @@ private fun MessageAttachment(
             Text("Изображение недоступно", style = MaterialTheme.typography.bodySmall)
         } },
     )
+    else if (audio && authenticated && onPreviewAttachment != null) {
+        TextButton(onClick = { openPreview("audio") }) {
+            Text("▶ Прослушать " + attachment.name.take(48))
+        }
+    }
     else if (audio) AudioMessage(url)
-    else if (video) TextButton(onClick = { preview = "video" }) {
+    else if (video) TextButton(onClick = { openPreview("video") }) {
         Text("▶ ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
     else TextButton(onClick = { createDocument.launch(fileName) },
@@ -270,28 +327,53 @@ private fun MessageAttachment(
         }) { Text("Открыть сохранённый файл") }
     }
     if (preview != null) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { preview = null }) {
+        val kind = preview
+        androidx.compose.ui.window.Dialog(onDismissRequest = ::closePreview) {
             Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface) {
                 Column(Modifier.fillMaxWidth().padding(12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = { preview = null }) { Text("Закрыть") }
+                        TextButton(onClick = ::closePreview) { Text("Закрыть") }
                     }
-                    if (preview == "image") {
-                        AsyncImage(
-                            url, attachment.name, Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 540.dp),
-                            contentScale = ContentScale.Fit,
-                        )
+                    if (previewLoading) {
+                        CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                        Text("Загружаем медиа внутри приложения…")
+                    } else if (previewFailure != null) {
+                        Text(previewFailure ?: "Не удалось загрузить",
+                            color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { kind?.let(::openPreview) }) { Text("Повторить") }
                     } else {
-                        AndroidView(
-                            factory = { ctx ->
-                                VideoView(ctx).apply {
-                                    setVideoURI(Uri.parse(url))
-                                    setMediaController(android.widget.MediaController(ctx))
-                                    setOnPreparedListener { player -> player.isLooping = false; start() }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().height(260.dp),
-                        )
+                        val local = previewFile.value
+                        val source: Any = if (authenticated) local ?: "" else url
+                        if (kind == "image") {
+                            var zoom by remember(source) { mutableFloatStateOf(1f) }
+                            AsyncImage(
+                                model = source,
+                                contentDescription = attachment.name,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 540.dp)
+                                    .pointerInput(source) {
+                                        detectTransformGestures { _, _, factor, _ ->
+                                            zoom = (zoom * factor).coerceIn(1f, 4f)
+                                        }
+                                    }.graphicsLayer(scaleX = zoom, scaleY = zoom),
+                                contentScale = ContentScale.Fit,
+                            )
+                            Text("Масштаб: ${(zoom * 100).toInt()}% — разведите пальцы для увеличения",
+                                style = MaterialTheme.typography.labelSmall)
+                        } else if (kind == "audio") {
+                            if (local != null) AudioMessage(local.absolutePath) else AudioMessage(url)
+                        } else if (kind == "video") {
+                            val uri = local?.let(Uri::fromFile) ?: Uri.parse(url)
+                            AndroidView(
+                                factory = { ctx ->
+                                    VideoView(ctx).apply {
+                                        setVideoURI(uri)
+                                        setMediaController(android.widget.MediaController(ctx))
+                                        setOnPreparedListener { player -> player.isLooping = false; start() }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(260.dp),
+                            )
+                        }
                     }
                 }
             }
