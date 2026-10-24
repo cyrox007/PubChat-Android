@@ -131,6 +131,13 @@ class AppController(context: Context) {
     }
 
     init {
+        // A crashed process cannot run the preview's onDispose cleanup.
+        // Purge only our private temporary previews from previous sessions.
+        runCatching {
+            appContext.cacheDir.listFiles()?.asSequence()
+                ?.filter { it.isFile && it.name.startsWith("pubchat_preview_") }
+                ?.forEach { it.delete() }
+        }
         // Connectivity callback is only a fast path; bounded retries and
         // foreground resume also recover if an OEM suppresses notifications.
         runCatching { connectivityManager.registerDefaultNetworkCallback(networkCallback) }
