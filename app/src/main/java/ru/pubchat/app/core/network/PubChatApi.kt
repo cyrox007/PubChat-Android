@@ -558,6 +558,34 @@ class PubChatApi(
         }
     }
 
+    /**
+     * Fetch an E2EE blob as ciphertext only. Reuse the same-origin,
+     * no-redirect authenticated transport; enforce the descriptor's exact
+     * AEAD ciphertext length before it can be decrypted locally.
+     */
+    internal fun downloadEncryptedAttachment(uid: String, plaintextSize: Int): ByteArray {
+        val canonical = java.util.UUID.fromString(uid).toString()
+        require(uid == canonical)
+        require(plaintextSize in 1..ru.pubchat.app.core.crypto.E2eeAttachmentCrypto.MAX_PLAINTEXT_BYTES)
+        val expected = plaintextSize + 16
+        val bytes = java.io.ByteArrayOutputStream(expected)
+        val capped = object : java.io.OutputStream() {
+            override fun write(b: Int) {
+                require(bytes.size() < expected) { "Зашифрованный файл превышает подтверждённый размер" }
+                bytes.write(b)
+            }
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                require(len >= 0 && bytes.size() + len <= expected) {
+                    "Зашифрованный файл превышает подтверждённый размер"
+                }
+                bytes.write(b, off, len)
+            }
+        }
+        downloadAttachment("/crypto/v1/attachments/$canonical", capped)
+        require(bytes.size() == expected) { "Неполный зашифрованный файл" }
+        return bytes.toByteArray()
+    }
+
     internal fun deletePendingEncryptedAttachment(uid: String) {
         val canonical = java.util.UUID.fromString(uid).toString()
         require(uid == canonical)

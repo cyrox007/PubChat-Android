@@ -59,6 +59,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -86,6 +88,14 @@ import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
 import ru.pubchat.app.core.network.MessengerEncryptionStatus
 import ru.pubchat.app.core.crypto.PeerDirectoryInspection
+import ru.pubchat.app.core.crypto.E2eeInboundPayload
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTransformGestures
+import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import ru.pubchat.app.core.realtime.PendingMessengerSend
 import ru.pubchat.app.ui.components.SocialAvailabilityControls
 import ru.pubchat.app.ui.components.FriendshipHubContent
@@ -469,7 +479,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var messengerConnection by remember { mutableStateOf("idle") }
     var activeDialog by remember { mutableStateOf<PubChatApi.DialogSummary?>(null) }
     var conversations by remember { mutableStateOf<Map<String, List<PubChatApi.ChatMessage>>>(emptyMap()) }
-    var e2eeDecrypted by remember { mutableStateOf<Map<String, Map<String, String>>>(emptyMap()) }
+    var e2eeDecrypted by remember { mutableStateOf<Map<String, Map<String, E2eeInboundPayload>>>(emptyMap()) }
     var e2eeReceiveError by remember { mutableStateOf<String?>(null) }
     var onlineStatuses by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var dmDraft by remember { mutableStateOf("") }
@@ -1242,6 +1252,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     dialog = activeDialog,
                     messages = conversations[activeDialog?.partnerUid].orEmpty(),
                     decryptedE2ee = e2eeDecrypted[state.accountUid + ":" + activeDialog?.partnerUid].orEmpty(),
+                    onEncryptedPreview = { attachment, done ->
+                        controller.previewEncryptedAttachment(attachment, done)
+                    },
                     e2eeReceiveError = e2eeReceiveError,
                     onRetryE2ee = { activeDialog?.partnerUid?.let { uid ->
                         decryptDialogMessages(uid, conversations[uid].orEmpty())
@@ -2194,7 +2207,8 @@ private fun MessengerChatContent(
     onCall: (Boolean) -> Unit,
     dialog: PubChatApi.DialogSummary?,
     messages: List<PubChatApi.ChatMessage>,
-    decryptedE2ee: Map<String, String>,
+    decryptedE2ee: Map<String, E2eeInboundPayload>,
+    onEncryptedPreview: (E2eeInboundPayload.Attachment, (File?, String?) -> Unit) -> Unit,
     e2eeReceiveError: String?,
     onRetryE2ee: () -> Unit,
     pendingEncryptedIds: List<String>,
@@ -2227,6 +2241,129 @@ private fun MessengerChatContent(
     onSend: () -> Unit,
     onAction: (String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val previewFile = remember(dialog?.partnerUid) { mutableStateOf<File?>(null) }
+    var previewTarget by remember(dialog?.partnerUid) {
+        mutableStateOf<E2eeInboundPayload.Attachment?>(null)
+    }
+    var previewLoading by remember(dialog?.partnerUid) { mutableStateOf(false) }
+    var previewError by remember(dialog?.partnerUid) { mutableStateOf<String?>(null) }
+    var previewEpoch by remember(dialog?.partnerUid) { mutableIntStateOf(0) }
+    val previewAlive = remember(dialog?.partnerUid) { AtomicBoolean(true) }
+    DisposableEffect(dialog?.partnerUid) {
+        previewAlive.set(true)
+        onDispose {
+            previewAlive.set(false)
+            previewEpoch++
+            previewFile.value?.delete()
+            previewFile.value = null
+        }
+    }
+    fun closeEncryptedPreview() {
+        previewEpoch++
+        previewFile.value?.delete()
+        previewFile.value = null
+        previewTarget = null
+        previewLoading = false
+        previewError = null
+    }
+    fun startEncryptedPreview(item: E2eeInboundPayload.Attachment) {
+        closeEncryptedPreview()
+        previewTarget = item
+        previewLoading = true
+        val epoch = previewEpoch
+        onEncryptedPreview(item) { file, failure ->
+            if (!previewAlive.get() || epoch != previewEpoch ||
+                previewTarget?.uid != item.uid) {
+                file?.delete()
+            } else {
+                previewFile.value = file
+                previewError = failure
+                previewLoading = false
+            }
+        }
+    }
+    val saveVerifiedPdf = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { destination ->
+        val source = previewFile.value
+        if (destination != null && source != null && previewAlive.get()) {
+            runCatching {
+                context.contentResolver.openOutputStream(destination, "wt")
+                    ?.use { output -> source.inputStream().use { it.copyTo(output) } }
+                    ?: error("Не удалось сохранить PDF")
+            }.onFailure {
+                runCatching { context.contentResolver.delete(destination, null, null) }
+                previewError = "Не удалось сохранить документ"
+            }
+        }
+    }
+    previewTarget?.let { item ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = ::closeEncryptedPreview) {
+            androidx.compose.material3.Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = ::closeEncryptedPreview) { Text("Закрыть") }
+                    }
+                    Text("🔒 " + item.name, style = MaterialTheme.typography.titleMedium)
+                    if (previewLoading) {
+                        CircularProgressIndicator()
+                        Text("Проверяем шифрование и целостность вложения…")
+                    } else if (previewError != null) {
+                        Text(previewError ?: "Ошибка E2EE", color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { startEncryptedPreview(item) }) { Text("Повторить") }
+                    } else {
+                        val file = previewFile.value
+                        if (file != null) {
+                            when {
+                                item.mime.startsWith("image/") -> {
+                                    var zoom by remember(file) { mutableFloatStateOf(1f) }
+                                    AsyncImage(
+                                        model = file,
+                                        contentDescription = item.name,
+                                        modifier = Modifier.fillMaxWidth().height(320.dp)
+                                            .pointerInput(file) {
+                                                detectTransformGestures { _, _, factor, _ ->
+                                                    zoom = (zoom * factor).coerceIn(1f, 4f)
+                                                }
+                                            }.graphicsLayer(scaleX = zoom, scaleY = zoom),
+                                        contentScale = ContentScale.Fit,
+                                    )
+                                }
+                                item.mime.startsWith("audio/") ->
+                                    EncryptedAudioPreview(file)
+                                item.mime.startsWith("video/") ->
+                                    AndroidView(
+                                        factory = { ctx ->
+                                            android.widget.VideoView(ctx).apply {
+                                                setVideoPath(file.absolutePath)
+                                                setMediaController(android.widget.MediaController(ctx))
+                                                setOnPreparedListener { start() }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth().height(230.dp),
+                                    )
+                                item.mime == "application/pdf" -> {
+                                    Text("PDF проверен и расшифрован локально. " +
+                                        "Сохранение создаст обычную незашифрованную копию.")
+                                    TextButton(onClick = {
+                                        saveVerifiedPdf.launch(item.name)
+                                    }) { Text("Сохранить PDF на устройство") }
+                                }
+                            }
+                            if (item.caption.isNotBlank()) Text(item.caption)
+                        }
+                    }
+                }
+            }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             dialog?.handle?.let { Text("@$it", Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -2285,15 +2422,26 @@ private fun MessengerChatContent(
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Можно начать с простого «привет»." else "Загружаем личный разговор…") }
             items(messages, key = PubChatApi.ChatMessage::uid) { message ->
                 Column {
+                    val trusted = decryptedE2ee[message.uid]
                     val safeMessage = if (message.contentType == "e2ee") message.copy(
-                        content = decryptedE2ee[message.uid]?.let { "🔒 $it" }
-                            ?: "🔒 E2EE-сообщение: не удалось проверить или расшифровать.",
+                        content = when (trusted) {
+                            is E2eeInboundPayload.Text -> "🔒 " + trusted.value
+                            is E2eeInboundPayload.Attachment ->
+                                "🔒 Защищённое вложение: " + trusted.name
+                            else -> "🔒 E2EE-сообщение: не удалось проверить или расшифровать."
+                        },
                         attachmentName = null, attachments = emptyList(), replyContent = null,
                     ) else message
                     RoomMessageCard(safeMessage, message.senderUid == currentAccountUid, null,
                         onSelect = { onSelect(message.uid) },
                         onSaveAttachment = onSaveAttachment,
                         onPreviewAttachment = onPreviewAttachment)
+                    if (trusted is E2eeInboundPayload.Attachment) {
+                        TextButton(
+                            onClick = { startEncryptedPreview(trusted) },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        ) { Text("🔒 Открыть зашифрованное вложение") }
+                    }
                     if (selectedUid == message.uid && message.contentType != "e2ee") {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { onActionMode("reply") }) { Text("Ответ") }
@@ -2335,6 +2483,47 @@ private fun MessengerChatContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+
+// Audio is played only from a local AEAD-verified file, never from the public DM URL.
+@Composable
+private fun EncryptedAudioPreview(file: File) {
+    val player = remember(file) { MediaPlayer() }
+    var status by remember(file) { mutableStateOf("loading") }
+    DisposableEffect(player) {
+        player.setOnPreparedListener { status = "ready" }
+        player.setOnCompletionListener {
+            status = "ready"
+            it.seekTo(0)
+        }
+        player.setOnErrorListener { _, _, _ ->
+            status = "error"
+            true
+        }
+        runCatching {
+            player.setDataSource(file.absolutePath)
+            player.prepareAsync()
+        }.onFailure { status = "error" }
+        onDispose { runCatching { player.release() } }
+    }
+    TextButton(onClick = {
+        runCatching {
+            if (status == "playing") {
+                player.pause()
+                status = "ready"
+            } else {
+                player.start()
+                status = "playing"
+            }
+        }.onFailure { status = "error" }
+    }, enabled = status == "ready" || status == "playing") {
+        Text(if (status == "playing") "⏸ Пауза" else "▶ Прослушать")
+    }
+    if (status == "error") {
+        Text("Не удалось воспроизвести E2EE-аудио", color = MaterialTheme.colorScheme.error)
+    }
+}
+
 
 @Composable
 private fun MessageCard(message: PubChatApi.ChatMessage, own: Boolean, onClick: (() -> Unit)?) {
