@@ -1922,6 +1922,54 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) onAttach(uri)
         }
+        var pendingVideo by remember(space?.uid) { mutableStateOf<android.net.Uri?>(null) }
+        val captureVideo = rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val mediaUri = result.data?.data
+                if (mediaUri != null) pendingVideo = mediaUri
+                else onVoiceError("Камера не вернула записанное видео. Выберите его через прикрепление файла.")
+            }
+        }
+        val launchVideoCapture = {
+            val intent = android.content.Intent(android.provider.MediaStore.ACTION_VIDEO_CAPTURE).apply {
+                putExtra(android.provider.MediaStore.EXTRA_DURATION_LIMIT, 15)
+                putExtra(android.provider.MediaStore.EXTRA_SIZE_LIMIT, 2L * 1024 * 1024)
+                putExtra(android.provider.MediaStore.EXTRA_VIDEO_QUALITY, 0)
+            }
+            runCatching { captureVideo.launch(intent) }
+                .onFailure { onVoiceError("Не удалось открыть камеру: " + (it.message ?: "неизвестная ошибка")) }
+            Unit
+        }
+        pendingVideo?.let { videoUri ->
+            AlertDialog(
+                onDismissRequest = { pendingVideo = null },
+                title = { Text("Видеосообщение") },
+                text = {
+                    Column {
+                        Text("Посмотрите запись перед отправкой. Лимит вложения — 2 МБ.")
+                        AndroidView(
+                            factory = { ctx -> android.widget.VideoView(ctx).apply {
+                                setVideoURI(videoUri)
+                                setMediaController(android.widget.MediaController(ctx))
+                                setOnPreparedListener { start() }
+                            } },
+                            modifier = Modifier.fillMaxWidth().height(220.dp),
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pendingVideo = null
+                        onAttach(videoUri)
+                    }) { Text("Отправить") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingVideo = null }) { Text("Отмена") }
+                },
+            )
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(
@@ -1945,6 +1993,10 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                 recorder.cancel()
                 voiceRecording = false
             }) { Text("Отмена") }
+            TextButton(
+                onClick = launchVideoCapture,
+                enabled = connection == "connected" && !voiceRecording && !sending,
+            ) { Text("🎥 Видеосообщение") }
         }
 
         if (reply != null) {
