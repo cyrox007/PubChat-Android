@@ -842,6 +842,110 @@ class AppController(context: Context) {
     }
 
     /**
+     * End-to-end encrypted DM attachment: encrypt ON DEVICE, upload only AEAD
+     * ciphertext, then atomically persist envelopes + attachment UID before
+     * final server binding. Failed transport never downgrades to plaintext.
+     */
+    fun sendEncryptedPrivateAttachment(
+        ownerUid: String, peerUid: String, sourceUri: Uri, frontId: String,
+        onResult: (Boolean, String?) -> Unit,
+    ) {
+        val epoch = messengerEpoch
+        val subscription = messengerSubscription
+        executor.execute {
+            var uploadedUid: String? = null
+            var batchPrepared = false
+            runCatching {
+                require(java.util.UUID.fromString(frontId).toString() == frontId)
+                val policy = authenticated { api.messengerEncryption(peerUid) }
+                ru.pubchat.app.core.network.requireE2eeDeliveryPolicy(policy)
+                val local = requireNotNull(cryptoDeviceStore.read(ownerUid)) {
+                    "Ключи этого устройства ещё не подготовлены"
+                }
+                require(!e2eeSessionStore.hasPendingBatch(ownerUid, local.deviceUid, frontId)) {
+                    "Незавершённая отправка уже сохранена: повторите её без перешифрования файла"
+                }
+                val loader = ru.pubchat.app.core.network.E2eeTrustedDirectoryLoader(
+                    api, cryptoDeviceStore, peerDirectoryTrustStore)
+                val verified = authenticated { loader.load(ownerUid, peerUid) }
+                val resolver = appContext.contentResolver
+                val mime = resolver.getType(sourceUri)
+                    ?: throw IllegalArgumentException("Неизвестный тип файла")
+                require(mime.startsWith("image/") || mime.startsWith("video/") ||
+                    mime.startsWith("audio/") || mime == "application/pdf") {
+                    "Этот формат нельзя отправить защищённо"
+                }
+                val name = resolver.query(sourceUri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }?.substringAfterLast('/')?.substringAfterLast('\\')?.take(255)
+                    ?.takeIf { it.isNotBlank() } ?: "Вложение"
+                val plaintext = resolver.openInputStream(sourceUri)?.use { input ->
+                    val capacity = ru.pubchat.app.core.crypto.E2eeAttachmentCrypto.MAX_PLAINTEXT_BYTES
+                    val buffer = ByteArray(capacity + 1)
+                    var used = 0
+                    while (used < buffer.size) {
+                        val n = input.read(buffer, used, buffer.size - used)
+                        if (n < 0) break
+                        used += n
+                    }
+                    require(used in 1..capacity) { "Лимит E2EE-файла: 2 МиБ" }
+                    buffer.copyOf(used).also { buffer.fill(0) }
+                } ?: error("Не удалось прочитать файл")
+                val attachmentUid = java.util.UUID.randomUUID().toString()
+                val mediaKind = when {
+                    mime.startsWith("image/") -> "image"
+                    mime.startsWith("video/") -> "video"
+                    mime.startsWith("audio/") -> "audio"
+                    else -> "file"
+                }
+                val sealed = try {
+                    ru.pubchat.app.core.crypto.E2eeAttachmentCrypto.seal(
+                        attachmentUid, plaintext, name, mime, mediaKind)
+                } finally { plaintext.fill(0) }
+                try {
+                    authenticated { api.uploadEncryptedAttachment(attachmentUid, sealed.ciphertext) }
+                    uploadedUid = attachmentUid
+                } finally {
+                    sealed.ciphertext.fill(0)
+                }
+                val payload = ru.pubchat.app.core.crypto.E2eeAttachmentCrypto
+                    .encryptedPayload(sealed.descriptor)
+                try {
+                    e2eeSessionStore.bootstrapAndPrepareBatch(
+                        ownerUid, local.deviceUid, local, verified, frontId,
+                        payload, attachmentUid)
+                    batchPrepared = true
+                } finally { payload.fill(0) }
+                authenticated {
+                    ru.pubchat.app.core.network.E2eeBatchDelivery(api, e2eeSessionStore)
+                        .submitPending(ownerUid, local.deviceUid, frontId, verified) {
+                            loader.refreshForSend(verified)
+                        }
+                }
+            }.onSuccess {
+                main.post {
+                    if (epoch == messengerEpoch && messengerSubscription === subscription &&
+                        subscription?.activePeerUid == peerUid) onResult(true, null)
+                }
+            }.onFailure { error ->
+                // Uploaded-but-unbound blobs can be removed; NEVER delete an
+                // attachment from a committed retry batch after ambiguous ACK.
+                if (!batchPrepared) {
+                    uploadedUid?.let { id ->
+                        runCatching { authenticated { api.deletePendingEncryptedAttachment(id) } }
+                    }
+                }
+                main.post {
+                    if (epoch == messengerEpoch)
+                        onResult(false, "E2EE: " +
+                            (error.message ?: "Не удалось отправить защищённое вложение"))
+                }
+            }
+        }
+    }
+
+    /**
      * Explicit crypto-device preparation, never auto-invoked during login.
      * Identity is persisted before the first request, so network retries reuse
      * exactly the same immutable device UID and signing/X25519 keys.

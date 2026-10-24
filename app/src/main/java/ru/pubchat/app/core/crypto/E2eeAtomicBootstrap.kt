@@ -70,7 +70,8 @@ internal object E2eeAtomicBootstrap {
 
     fun prepare(state: JSONObject, local: CryptoDeviceMaterial,
                 verified: E2eeDevicePreflight.VerifiedTargets,
-                frontId: String, plaintext: ByteArray): E2eeFanoutBatch.Batch {
+                frontId: String, plaintext: ByteArray,
+                attachmentUid: String? = null): E2eeFanoutBatch.Batch {
         require(local.accountUid == verified.ownAccountUid &&
             local.deviceUid == verified.senderDeviceUid)
         val ownIdentity = requireNotNull(verified.own[local.deviceUid]) {
@@ -101,7 +102,7 @@ internal object E2eeAtomicBootstrap {
         val own = verified.own.values.sortedBy { it.deviceUid }.map { target(state, local, it) }
         val peer = verified.peerClaimed.values.sortedBy { it.deviceUid }.map { target(state, local, it) }
         return E2eeFanoutBatch.prepare(state, frontId, local.deviceUid,
-            verified.peerAccountUid, own, peer, plaintext)
+            verified.peerAccountUid, own, peer, plaintext, attachmentUid)
     }
 
     fun acknowledge(state: JSONObject, frontId: String): Boolean {

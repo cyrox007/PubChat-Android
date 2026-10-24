@@ -36,12 +36,14 @@ internal object E2eeFanoutBatch {
         val receiverUid: String,
         val senderDeviceUid: String,
         val envelopes: List<Envelope>,
+        val attachmentUid: String? = null,
     ) {
         fun requestBody(): JSONObject = JSONObject()
             .put("receiver_uid", receiverUid)
             .put("sender_device_uid", senderDeviceUid)
             .put("front_id", frontId)
             .put("envelopes", JSONArray().also { a -> envelopes.forEach { a.put(it.json()) } })
+            .also { body -> attachmentUid?.let { body.put("attachment_uid", it) } }
     }
 
     private fun uuid(value: String): String = UUID.fromString(value).toString().also {
@@ -69,10 +71,12 @@ internal object E2eeFanoutBatch {
         ownActiveDevices: List<Target>,
         peerActiveDevices: List<Target>,
         plaintext: ByteArray,
+        attachmentUid: String? = null,
     ): Batch {
         val id = uuid(frontId)
         val sender = uuid(senderDeviceUid)
         val receiver = uuid(receiverUid)
+        val attached = attachmentUid?.let(::uuid)
         require(plaintext.isNotEmpty() && plaintext.size <= 16_384)
         val targets = ownActiveDevices + peerActiveDevices
         require(ownActiveDevices.isNotEmpty() && peerActiveDevices.isNotEmpty())
@@ -98,11 +102,12 @@ internal object E2eeFanoutBatch {
                 target.initialHeader?.let { JSONObject(it.toString()) }))
             packetIds.put(packetUid)
         }
-        val body = Batch(id, receiver, sender, envelopes)
+        val body = Batch(id, receiver, sender, envelopes, attached)
         batches.put(id, JSONObject()
             .put("receiver_uid", receiver).put("sender_device_uid", sender)
             .put("envelopes", body.requestBody().getJSONArray("envelopes"))
-            .put("packet_ids", packetIds))
+            .put("packet_ids", packetIds)
+            .put("attachment_uid", attached ?: JSONObject.NULL))
         return body
     }
 
@@ -130,8 +135,10 @@ internal object E2eeFanoutBatch {
                 item.optJSONObject("initial_header")?.let { JSONObject(it.toString()) },
             )
         }
+        val attached = if (row.isNull("attachment_uid")) null
+            else uuid(row.getString("attachment_uid"))
         return Batch(id, uuid(row.getString("receiver_uid")),
-            uuid(row.getString("sender_device_uid")), envelopes)
+            uuid(row.getString("sender_device_uid")), envelopes, attached)
     }
 
     fun validate(state: JSONObject) {

@@ -132,4 +132,24 @@ class E2eeFanoutBatchTest {
             .put("counter", 123)
         assertThrows(Exception::class.java) { E2eeSessionLedger.validate(swapped, account, ownDevice) }
     }
+    @Test fun attachmentUidIsDurableAndCannotBeSwappedOnRetry() {
+        val state = fresh()
+        val frontId = UUID.randomUUID().toString()
+        val attachmentUid = UUID.randomUUID().toString()
+        val encryptedMetadata = """{"type":"attachment","attachment":{"uid":"$attachmentUid"}}"""
+        val batch = E2eeFanoutBatch.prepare(state, frontId, ownDevice, peerAccount,
+            ownTargets, peerTargets, encryptedMetadata.toByteArray(), attachmentUid)
+        assertEquals(attachmentUid, batch.requestBody().getString("attachment_uid"))
+        assertFalse(batch.requestBody().toString().contains("raw file"))
+        val restored = E2eeFanoutBatch.load(JSONObject(state.toString()), frontId)
+        assertEquals(attachmentUid, restored.attachmentUid)
+        assertEquals(batch.requestBody().toString(), restored.requestBody().toString())
+        assertThrows(Exception::class.java) {
+            E2eeFanoutBatch.prepare(state, frontId, ownDevice, peerAccount,
+                ownTargets, peerTargets, encryptedMetadata.toByteArray(),
+                UUID.randomUUID().toString())
+        }
+        E2eeSessionLedger.validate(state, account, ownDevice)
+    }
+
 }
