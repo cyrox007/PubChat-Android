@@ -1137,6 +1137,48 @@ class AppController(context: Context) {
      * Save an authorized Space/legacy DM attachment to a user-selected SAF
      * document. Encrypted DM messages deliberately never expose raw attachments.
      */
+    /**
+     * Private, bounded, same-origin authenticated media preview. Caller takes
+     * ownership of a successful temporary file and must delete it on dismiss.
+     * Never use this for E2EE message envelopes or off-origin media.
+     */
+    fun previewAttachment(attachment: PubChatApi.Attachment,
+                          onResult: (java.io.File?, String?) -> Unit) {
+        executor.execute {
+            var temp: java.io.File? = null
+            runCatching {
+                val mime = attachment.mimeType.orEmpty().lowercase()
+                require(mime.startsWith("image/") || mime.startsWith("audio/") ||
+                    mime.startsWith("video/")) { "Этот формат не поддерживает предпросмотр" }
+                val suffix = when (mime) {
+                    "image/jpeg" -> ".jpg"
+                    "image/png" -> ".png"
+                    "image/webp" -> ".webp"
+                    "image/gif" -> ".gif"
+                    "audio/mp4", "audio/x-m4a" -> ".m4a"
+                    "audio/mpeg" -> ".mp3"
+                    "audio/ogg" -> ".ogg"
+                    "video/mp4" -> ".mp4"
+                    "video/webm" -> ".webm"
+                    else -> ".media"
+                }
+                temp = java.io.File.createTempFile("pubchat_preview_", suffix, appContext.cacheDir)
+                val target = checkNotNull(temp)
+                authenticated {
+                    java.io.FileOutputStream(target, false).use { output ->
+                        api.downloadAttachment(attachment.url, output)
+                    }
+                }
+                target
+            }.onSuccess { file ->
+                main.post { onResult(file, null) }
+            }.onFailure { error ->
+                temp?.delete()
+                main.post { onResult(null, humanMessage(error)) }
+            }
+        }
+    }
+
     fun saveAttachment(attachment: PubChatApi.Attachment, destination: Uri,
                        onDone: (String?) -> Unit) {
         executor.execute {
