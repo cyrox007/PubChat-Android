@@ -1282,6 +1282,38 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onPreviewAttachment = { attachment, done ->
                         controller.previewAttachment(attachment, done)
                     },
+                    onEncryptedAttach = { uri ->
+                        val peer = activeDialog?.partnerUid
+                        if (peer != null && !dmSending) {
+                            if (durableE2eeLoading || durableE2eePending.isNotEmpty() ||
+                                dmPending?.encrypted == true) {
+                                messengerError = "Сначала завершите сохранённые E2EE-отправки."
+                            } else if (dmEncryption?.effectiveMode !=
+                                ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE ||
+                                dmEncryption?.cryptoReady != true) {
+                                messengerError = "Шифрование ещё не подтверждено. Файл не отправлен."
+                            } else {
+                                dmSending = true
+                                messengerError = null
+                                val front = java.util.UUID.randomUUID().toString()
+                                controller.sendEncryptedPrivateAttachment(
+                                    state.accountUid, peer, uri, front) { accepted, reason ->
+                                    dmSending = false
+                                    if (activeDialog?.partnerUid == peer) {
+                                        messengerError = if (accepted) null else reason
+                                        if (!accepted) {
+                                            // Retry uses the immutable durable batch, not the file picker.
+                                            controller.recoverEncryptedPendingIds(
+                                                state.accountUid, peer) { ids, error ->
+                                                durableE2eePending = ids
+                                                if (error != null) messengerError = error
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
                     draft = dmDraft,
                     onDraft = { dmDraft = it },
                     selectedUid = selectedMessageUid,
@@ -2183,6 +2215,7 @@ private fun MessengerChatContent(
     onAcknowledgeDirectory: () -> Unit,
     onSaveAttachment: (PubChatApi.Attachment, android.net.Uri, (String?) -> Unit) -> Unit,
     onPreviewAttachment: (PubChatApi.Attachment, (java.io.File?, String?) -> Unit) -> Unit,
+    onEncryptedAttach: (android.net.Uri) -> Unit,
     draft: String,
     onDraft: (String) -> Unit,
     selectedUid: String?,
@@ -2279,7 +2312,27 @@ private fun MessengerChatContent(
                 }
             }
         }
-        Composer(draft, onDraft, sendEnabled, onSend)
+        val encryptedReady = sendEnabled &&
+            encryption?.effectiveMode == ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE &&
+            encryption.cryptoReady && !pendingEncryptedLoading && pendingEncryptedIds.isEmpty()
+        val encryptedPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.GetContent()
+        ) { uri ->
+            if (uri != null) onEncryptedAttach(uri)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            IconButton(
+                onClick = { encryptedPicker.launch("*/*") },
+                enabled = encryptedReady,
+                modifier = Modifier.size(48.dp).semantics {
+                    contentDescription = "Отправить файл со сквозным шифрованием"
+                },
+            ) { Text("🔒＋", fontSize = 17.sp) }
+            Box(Modifier.weight(1f)) { Composer(draft, onDraft, sendEnabled, onSend) }
+        }
+        Text("E2EE-файлы до 2 МиБ. Ключ остаётся только в зашифрованных сообщениях.",
+            Modifier.padding(horizontal = 14.dp), style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
