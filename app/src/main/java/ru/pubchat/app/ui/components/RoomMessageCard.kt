@@ -1,10 +1,11 @@
 package ru.pubchat.app.ui.components
 
 import android.media.MediaPlayer
-import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
-import android.os.Environment
 import android.widget.VideoView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -51,6 +52,7 @@ internal fun RoomMessageCard(
     onReplyJump: (() -> Unit)? = null,
     onReply: (() -> Unit)? = null,
     onSelect: (() -> Unit)? = null,
+    onSaveAttachment: ((PubChatApi.Attachment, Uri, (String?) -> Unit) -> Unit)? = null,
 ) {
     // The bubble owns only content and metadata; a 48dp touch target for reply
     // sits *beside* it instead of stretching every short message to 100+dp.
@@ -158,7 +160,7 @@ internal fun RoomMessageCard(
                         style = MaterialTheme.typography.bodyMedium)
                 } else {
                     message.attachments.forEach { attachment ->
-                        MessageAttachment(attachment, message.contentType)
+                        MessageAttachment(attachment, message.contentType, onSaveAttachment)
                     }
                     if (message.content.isNotBlank() &&
                         message.attachments.none { it.url == message.content }) {
@@ -196,11 +198,33 @@ internal fun RoomMessageCard(
 }
 
 @Composable
-private fun MessageAttachment(attachment: PubChatApi.Attachment, contentType: String) {
+private fun MessageAttachment(
+    attachment: PubChatApi.Attachment,
+    contentType: String,
+    onSaveAttachment: ((PubChatApi.Attachment, Uri, (String?) -> Unit) -> Unit)?,
+) {
     val url = publicMediaUrl(attachment.url)
     val context = LocalContext.current
     var openError by remember(attachment.url) { mutableStateOf(false) }
+    var savedUri by remember(attachment.url) { mutableStateOf<Uri?>(null) }
+    var saving by remember(attachment.url) { mutableStateOf(false) }
     var preview by remember(attachment.url) { mutableStateOf<String?>(null) }
+    val fileName = attachment.name.substringAfterLast('/').substringAfterLast('\\')
+        .filter { it != '/' && it != '\\' && it.code >= 32 }.take(128)
+        .ifBlank { "pubchat-file" }
+    val mime = attachment.mimeType?.takeIf { it.contains('/') } ?: "application/octet-stream"
+    val createDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(mime),
+    ) { target ->
+        if (target != null && onSaveAttachment != null) {
+            saving = true
+            openError = false
+            onSaveAttachment(attachment, target) { failure ->
+                saving = false
+                if (failure != null) openError = true else savedUri = target
+            }
+        }
+    }
     if (url == null) { Text("Вложение недоступно"); return }
     val image = attachment.mimeType?.startsWith("image/") == true || contentType == "image"
     val audio = attachment.mimeType?.startsWith("audio/") == true || contentType in setOf("audio", "voice")
@@ -222,19 +246,28 @@ private fun MessageAttachment(attachment: PubChatApi.Attachment, contentType: St
     else if (video) TextButton(onClick = { preview = "video" }) {
         Text("▶ ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
-    else TextButton(onClick = {
-        runCatching {
-            val name = attachment.name.substringAfterLast('/').take(128)
-                .ifBlank { "pubchat-file" }
-            val request = DownloadManager.Request(Uri.parse(url))
-                .setTitle(name)
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, name)
-            val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            manager.enqueue(request)
-        }.onFailure { openError = true }
-    }) {
-        Text("↓ ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
+    else TextButton(onClick = { createDocument.launch(fileName) },
+        enabled = onSaveAttachment != null && !saving) {
+        Text(if (saving) "Сохраняем…" else "↓ ${attachment.name}",
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+    if (image || audio || video) {
+        TextButton(onClick = { createDocument.launch(fileName) },
+            enabled = onSaveAttachment != null && !saving) {
+            Text(if (saving) "Сохраняем…" else "↓ Сохранить",
+                style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    savedUri?.let { document ->
+        TextButton(onClick = {
+            runCatching {
+                val open = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(document, mime)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(open)
+            }.onFailure { openError = true }
+        }) { Text("Открыть сохранённый файл") }
     }
     if (preview != null) {
         androidx.compose.ui.window.Dialog(onDismissRequest = { preview = null }) {
