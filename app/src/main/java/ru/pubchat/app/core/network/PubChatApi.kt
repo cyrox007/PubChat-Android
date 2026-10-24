@@ -746,6 +746,51 @@ class PubChatApi(
         )
     }
 
+    /**
+     * Stream to a user-selected document URI. No automatic redirects, third-party
+     * hosts or unbounded downloads; authorization is sent only to our API origin.
+     */
+    fun downloadAttachment(url: String, output: java.io.OutputStream) {
+        val safeUrl = authorizedMediaUrl(BuildConfig.API_BASE_URL, url)
+            ?: throw IllegalArgumentException("Ссылка на файл находится вне сервера PubChat")
+        val token = accessToken()?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("Для загрузки вложения необходим вход в аккаунт")
+        val maxBytes = 32L * 1024 * 1024
+        val connection = (URL(safeUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            instanceFollowRedirects = false
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("X-PubChat-Device-ID", deviceUid())
+            setRequestProperty("Accept", "application/octet-stream, image/*, audio/*, video/*, application/pdf, */*")
+            setRequestProperty("Cache-Control", "no-store")
+        }
+        try {
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                throw ApiFailure(status, if (status in 300..399) "Перенаправление вложения запрещено"
+                    else "Не удалось загрузить файл (HTTP $status)")
+            }
+            require(connection.contentLengthLong <= maxBytes) { "Вложение превышает 32 МБ" }
+            var written = 0L
+            connection.inputStream.use { input ->
+                val buffer = ByteArray(16 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    written += count
+                    require(written <= maxBytes) { "Вложение превышает 32 МБ" }
+                    output.write(buffer, 0, count)
+                }
+            }
+            require(written > 0) { "Пустой файл" }
+            output.flush()
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private data class HttpResult(val body: String, val refreshCookie: String?)
 
     private fun csrfProof(): String {
