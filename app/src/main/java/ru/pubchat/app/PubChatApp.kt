@@ -2314,7 +2314,7 @@ private fun MessengerChatContent(
         }
         val encryptedReady = sendEnabled &&
             encryption?.effectiveMode == ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE &&
-            encryption.cryptoReady && !pendingEncryptedLoading && pendingEncryptedIds.isEmpty()
+            encryption?.cryptoReady == true && !pendingEncryptedLoading && pendingEncryptedIds.isEmpty()
         val encryptedPicker = rememberLauncherForActivityResult(
             ActivityResultContracts.GetContent()
         ) { uri ->
