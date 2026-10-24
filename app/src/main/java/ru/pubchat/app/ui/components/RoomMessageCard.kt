@@ -246,7 +246,16 @@ private fun MessageAttachment(
         if (authenticated && onPreviewAttachment != null) {
             val epoch = previewEpoch
             previewLoading = true
-            onPreviewAttachment(attachment) { file, failure ->
+            // Legacy attachments can omit MIME while carrying the content type.
+            val media = if (attachment.mimeType.isNullOrBlank()) {
+                attachment.copy(mimeType = when (kind) {
+                    "image" -> "image/jpeg"
+                    "audio" -> "audio/mp4"
+                    "video" -> "video/mp4"
+                    else -> "application/octet-stream"
+                })
+            } else attachment
+            onPreviewAttachment(media) { file, failure ->
                 if (!alive.get() || previewEpoch != epoch || preview != kind) {
                     file?.delete()
                 } else {
