@@ -19,6 +19,8 @@ import ru.pubchat.app.core.crypto.CryptoDeviceMaterial
 import ru.pubchat.app.core.crypto.CryptoDeviceSnapshot
 import ru.pubchat.app.core.crypto.CryptoDeviceStore
 import ru.pubchat.app.core.crypto.E2eeInboundText
+import ru.pubchat.app.core.crypto.E2eeInboundPayload
+import ru.pubchat.app.core.crypto.E2eeAttachmentCrypto
 import ru.pubchat.app.core.crypto.E2eeSessionStore
 import ru.pubchat.app.core.crypto.PeerDirectoryContinuity
 import ru.pubchat.app.core.crypto.PeerDirectoryTrustStore
@@ -135,7 +137,8 @@ class AppController(context: Context) {
         // Purge only our private temporary previews from previous sessions.
         runCatching {
             appContext.cacheDir.listFiles()?.asSequence()
-                ?.filter { it.isFile && it.name.startsWith("pubchat_preview_") }
+                ?.filter { it.isFile && (it.name.startsWith("pubchat_preview_") ||
+                    it.name.startsWith("pubchat_e2ee_preview_")) }
                 ?.forEach { it.delete() }
         }
         // Connectivity callback is only a fast path; bounded retries and
@@ -958,13 +961,13 @@ class AppController(context: Context) {
     internal fun decryptMessengerHistory(
         ownerUid: String, peerUid: String,
         messages: List<PubChatApi.ChatMessage>,
-        onResult: (Map<String, String>, String?) -> Unit,
+        onResult: (Map<String, E2eeInboundPayload>, String?) -> Unit,
     ) {
         executor.execute {
             runCatching {
                 val candidates = messages.filter { it.contentType == "e2ee" &&
                     it.senderUid == peerUid }.take(100)
-                if (candidates.isEmpty()) return@runCatching emptyMap<String, String>()
+                if (candidates.isEmpty()) return@runCatching emptyMap<String, E2eeInboundPayload>()
                 val local = requireNotNull(cryptoDeviceStore.read(ownerUid)) {
                     "Криптографическое устройство не настроено"
                 }
@@ -980,14 +983,14 @@ class AppController(context: Context) {
                     "Ключи собеседника изменились — сначала подтвердите каталог устройств"
                 }
                 val envelopes = authenticated { api.e2eeMessageEnvelopes(candidates.map { it.uid }) }
-                val decrypted = linkedMapOf<String, String>()
+                val decrypted = linkedMapOf<String, E2eeInboundPayload>()
                 for (message in candidates) {
                     try {
                         val envelope = E2eeInboundText.selectEnvelope(envelopes, message.uid, local.deviceUid)
                         require(envelope.senderDeviceUid in trusted.devices.keys)
-                        val text = e2eeSessionStore.decryptInboundText(
+                        val payload = e2eeSessionStore.decryptInboundPayload(
                             ownerUid, local.deviceUid, local, trusted, envelope)
-                        decrypted[message.uid] = text
+                        decrypted[message.uid] = payload
                     } catch (_: Exception) {
                         // Unknown/replayed/out-of-order/corrupt envelopes stay locked.
                         // Do not expose server metadata or downgrade to plaintext.
@@ -999,6 +1002,58 @@ class AppController(context: Context) {
                 .onFailure { error -> main.post {
                     onResult(emptyMap(), "E2EE: " + (error.message ?: "расшифровка недоступна"))
                 } }
+        }
+    }
+
+    /**
+     * Decrypt ciphertext only after its descriptor was authenticated by the
+     * inbound device envelope. Never read media key/nonce from server metadata.
+     * Caller owns the private preview file and deletes it on close/navigation.
+     */
+    fun previewEncryptedAttachment(
+        attachment: E2eeInboundPayload.Attachment,
+        onResult: (java.io.File?, String?) -> Unit,
+    ) {
+        executor.execute {
+            var output: java.io.File? = null
+            runCatching {
+                val descriptor = attachment.authenticatedDescriptor()
+                val size = descriptor.getInt("size")
+                val ciphertext = authenticated {
+                    api.downloadEncryptedAttachment(attachment.uid, size)
+                }
+                val plaintext = try {
+                    E2eeAttachmentCrypto.open(descriptor, ciphertext)
+                } finally {
+                    ciphertext.fill(0)
+                }
+                try {
+                    val suffix = when (attachment.mime) {
+                        "image/jpeg" -> ".jpg"
+                        "image/png" -> ".png"
+                        "image/webp" -> ".webp"
+                        "image/gif" -> ".gif"
+                        "audio/mp4", "audio/x-m4a" -> ".m4a"
+                        "audio/mpeg" -> ".mp3"
+                        "audio/ogg" -> ".ogg"
+                        "video/mp4" -> ".mp4"
+                        "video/webm" -> ".webm"
+                        "application/pdf" -> ".pdf"
+                        else -> error("Неподдерживаемое E2EE-вложение")
+                    }
+                    output = java.io.File.createTempFile("pubchat_e2ee_preview_",
+                        suffix, appContext.cacheDir)
+                    checkNotNull(output).outputStream().use { it.write(plaintext) }
+                } finally {
+                    plaintext.fill(0)
+                }
+                checkNotNull(output)
+            }.onSuccess { file -> main.post { onResult(file, null) } }
+                .onFailure { failure ->
+                    output?.delete()
+                    main.post { onResult(null, "E2EE: " + (failure.message ?:
+                        "Не удалось проверить и расшифровать вложение")) }
+                }
         }
     }
 
