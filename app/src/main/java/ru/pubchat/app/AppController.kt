@@ -1165,6 +1165,26 @@ class AppController(context: Context) {
     }
 
 
+    /** Upload a locally recorded AAC voice note through the existing Space attachment protocol. */
+    fun sendSpaceVoiceNote(file: java.io.File, accountUid: String, displayName: String,
+                           onDone: (String?) -> Unit) {
+        executor.execute {
+            runCatching {
+                require(file.isFile && file.length() in 1..2_097_152) {
+                    "Голосовое сообщение пустое или превышает 2 МБ"
+                }
+                val bytes = file.readBytes()
+                val dataUrl = "data:audio/mp4;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                check(realtime?.sendAttachment("", accountUid, displayName,
+                    "Голосовое сообщение.m4a", "audio/mp4", bytes.size, dataUrl) == true) {
+                    "Пространство не подключено"
+                }
+            }.onSuccess { main.post { onDone(null) } }
+                .onFailure { error -> main.post { onDone(humanMessage(error)) } }
+                .also { file.delete() }
+        }
+    }
+
     fun connectCalls(onStatus: (String, String?, String) -> Unit) {
         callStatusCallback = onStatus
         if (callSocket != null) return
