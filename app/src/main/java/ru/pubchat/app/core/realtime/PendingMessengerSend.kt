@@ -8,7 +8,11 @@ internal data class PendingMessengerSend(
     val frontId: String,
     val peerUid: String,
     val text: String,
+    val encrypted: Boolean = false,
 ) {
+    fun canRetryEncrypted(peerUid: String, draft: String): Boolean =
+        encrypted && this.peerUid == peerUid && this.text == draft.trim()
+
     fun matchesEcho(frontId: String, peerUid: String): Boolean =
         this.frontId == frontId && this.peerUid == peerUid
 
