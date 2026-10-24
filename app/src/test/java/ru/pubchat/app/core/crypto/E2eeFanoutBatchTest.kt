@@ -54,6 +54,27 @@ class E2eeFanoutBatchTest {
         E2eeSessionLedger.validate(afterCrash, account, ownDevice)
     }
 
+    @Test fun pendingRecoveryIdsSurviveRestartAndRemainScopedToPeer() {
+        val state = fresh()
+        val firstId = UUID.randomUUID().toString()
+        val secondId = UUID.randomUUID().toString()
+        E2eeFanoutBatch.prepare(state, firstId, ownDevice, peerAccount,
+            ownTargets, peerTargets, "first".toByteArray())
+        E2eeFanoutBatch.prepare(state, secondId, ownDevice, peerAccount,
+            ownTargets, peerTargets, "second".toByteArray())
+        val recovered = JSONObject(state.toString())
+        assertEquals(listOf(firstId, secondId).sorted(),
+            E2eeFanoutBatch.pendingIdsForPeer(recovered, peerAccount))
+        assertTrue(E2eeFanoutBatch.pendingIdsForPeer(recovered, account).isEmpty())
+        val ciphertext = E2eeFanoutBatch.load(recovered, firstId).requestBody().toString()
+        assertTrue(E2eeFanoutBatch.acknowledge(recovered, firstId))
+        assertEquals(listOf(secondId), E2eeFanoutBatch.pendingIdsForPeer(recovered, peerAccount))
+        // Enumeration never re-encrypts surviving ciphertext or increments counters.
+        assertEquals(E2eeFanoutBatch.load(state, secondId).requestBody().toString(),
+            E2eeFanoutBatch.load(recovered, secondId).requestBody().toString())
+        assertTrue(ciphertext.isNotBlank())
+    }
+
     @Test fun ackIsAllOrNothingAndCannotDeleteSingleDevicePacket() {
         val state = fresh()
         val frontId = UUID.randomUUID().toString()

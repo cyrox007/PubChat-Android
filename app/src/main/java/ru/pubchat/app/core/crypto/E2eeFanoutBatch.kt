@@ -106,6 +106,15 @@ internal object E2eeFanoutBatch {
         return body
     }
 
+    /** Enumerate only immutable, validated recovery batches for one peer. */
+    fun pendingIdsForPeer(state: JSONObject, peerAccountUid: String): List<String> {
+        val peer = uuid(peerAccountUid)
+        val batches = state.optJSONObject("batches") ?: return emptyList()
+        return batches.keys().asSequence().filter { id ->
+            load(state, id).receiverUid == peer
+        }.sorted().toList()
+    }
+
     fun load(state: JSONObject, frontId: String): Batch {
         val id = uuid(frontId)
         val row = rows(state).getJSONObject(id)

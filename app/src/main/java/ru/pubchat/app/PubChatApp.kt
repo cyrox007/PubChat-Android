@@ -407,6 +407,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var dmDraft by remember { mutableStateOf("") }
     var dmSending by remember { mutableStateOf(false) }
     var dmPending by remember { mutableStateOf<PendingMessengerSend?>(null) }
+    var durableE2eePending by remember { mutableStateOf<List<String>>(emptyList()) }
+    var durableE2eeLoading by remember { mutableStateOf(false) }
     var dmEncryption by remember { mutableStateOf<MessengerEncryptionStatus?>(null) }
     var dmEncryptionLoading by remember { mutableStateOf(false) }
     var dmEncryptionError by remember { mutableStateOf<String?>(null) }
@@ -715,6 +717,15 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         dmDraft = ""
         dmPending = null
         dmSending = false
+        durableE2eePending = emptyList()
+        durableE2eeLoading = true
+        controller.recoverEncryptedPendingIds(state.accountUid, dialog.partnerUid) { ids, failure ->
+            if (activeDialog?.partnerUid == dialog.partnerUid) {
+                durableE2eePending = ids
+                durableE2eeLoading = false
+                if (failure != null) messengerError = failure
+            }
+        }
         dmDirectoryInspection = null
         dmDirectoryMessage = null
         dmDirectoryBusy = false
@@ -1124,6 +1135,23 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onRetryE2ee = { activeDialog?.partnerUid?.let { uid ->
                         decryptDialogMessages(uid, conversations[uid].orEmpty())
                     } },
+                    pendingEncryptedIds = durableE2eePending,
+                    pendingEncryptedLoading = durableE2eeLoading,
+                    onRetryPendingEncrypted = { frontId ->
+                        val peerUid = activeDialog?.partnerUid
+                        if (peerUid != null && !dmSending) {
+                            dmSending = true
+                            controller.sendEncryptedPrivateMessage(state.accountUid, peerUid, "", frontId) { accepted, failure ->
+                                dmSending = false
+                                if (accepted) {
+                                    durableE2eePending = durableE2eePending - frontId
+                                    messengerError = null
+                                } else {
+                                    messengerError = failure ?: "Подтверждение E2EE пока не получено"
+                                }
+                            }
+                        }
+                    },
                     currentAccountUid = state.accountUid,
                     connection = messengerConnection,
                     error = messengerError,
@@ -1149,6 +1177,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         val peer = activeDialog?.partnerUid
                         val sentText = dmDraft
                         if (peer != null && sentText.isNotBlank() && !dmSending) {
+                            if (durableE2eeLoading || durableE2eePending.isNotEmpty()) {
+                                messengerError = "Сначала проверьте незавершённые защищённые отправки."
+                                return@MessengerChatContent
+                            }
                             val encrypted = dmEncryption?.effectiveMode ==
                                 ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE
                             val previous = dmPending?.takeIf { it.encrypted }
@@ -1813,6 +1845,9 @@ private fun MessengerChatContent(
     decryptedE2ee: Map<String, String>,
     e2eeReceiveError: String?,
     onRetryE2ee: () -> Unit,
+    pendingEncryptedIds: List<String>,
+    pendingEncryptedLoading: Boolean,
+    onRetryPendingEncrypted: (String) -> Unit,
     currentAccountUid: String,
     connection: String,
     error: String?,
@@ -1873,6 +1908,18 @@ private fun MessengerChatContent(
         directoryStatus?.let { Text(it, Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
             style = MaterialTheme.typography.bodySmall,
             color = if (directoryChanged) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (pendingEncryptedLoading) {
+            Text("Проверяем незавершённые E2EE-отправки…", Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
+        }
+        pendingEncryptedIds.forEach { frontId ->
+            TextButton(
+                onClick = { onRetryPendingEncrypted(frontId) },
+                enabled = !sending && encryption?.effectiveMode ==
+                    ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE &&
+                    encryption?.cryptoReady == true,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            ) { Text("Повторить сохранённую E2EE-отправку · " + frontId.take(8)) }
+        }
         error?.let { Text(it, Modifier.padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
         e2eeReceiveError?.let { Text(it, Modifier.padding(horizontal = 14.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error) }
         if (messages.any { it.contentType == "e2ee" &&
