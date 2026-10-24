@@ -37,4 +37,14 @@ class AuthFormRulesTest {
         assertTrue(AuthFormRules.validHandle("alex.2026_"))
         assertFalse(AuthFormRules.validHandle("alex-hyphen"))
     }
+    @Test fun confirmationMustMatchAndStrengthUpdatesWithInput() {
+        assertFalse(AuthFormRules.canRegisterConfirmed("alex", "", "password123", ""))
+        assertFalse(AuthFormRules.canRegisterConfirmed("alex", "", "password123", "other"))
+        assertTrue(AuthFormRules.canRegisterConfirmed("alex", "", "password123", "password123"))
+        assertFalse(AuthFormRules.passwordConfirmationMatches("secret", ""))
+        assertTrue(AuthFormRules.passwordConfirmationMatches("secret", "secret"))
+        assertEquals(0, AuthFormRules.passwordStrength(""))
+        assertTrue(AuthFormRules.passwordStrength("StrongPassword12!") >
+            AuthFormRules.passwordStrength("password"))
+    }
 }
