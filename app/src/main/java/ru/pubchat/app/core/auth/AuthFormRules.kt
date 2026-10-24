@@ -6,6 +6,12 @@ package ru.pubchat.app.core.auth
 object AuthFormRules {
     private val handlePattern = Regex("^[A-Za-z0-9_.]{3,32}$")
 
+    fun validOptionalEmail(email: String): Boolean {
+        val trimmed = email.trim()
+        return trimmed.isEmpty() || (trimmed.length <= 254 &&
+            Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(trimmed))
+    }
+
     fun validHandle(handle: String): Boolean = handlePattern.matches(handle.trim())
 
     /** Local strength feedback only. The backend remains authoritative. */
