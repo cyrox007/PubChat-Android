@@ -183,7 +183,7 @@ private fun AuthScreen(
         }
     }
     val canSubmit = !submitting && if (registration) {
-        AuthFormRules.canRegisterConfirmed(handle, name, password, confirmation) && handleAvailability != false && !handleChecking
+        AuthFormRules.canRegisterConfirmed(handle, name, password, confirmation) && AuthFormRules.validOptionalEmail(email) && handleAvailability != false && !handleChecking
     } else {
         AuthFormRules.canLogin(identifier, password)
     }
@@ -322,6 +322,12 @@ private fun AuthScreen(
                     OutlinedTextField(
                         email, { email = it.take(254) }, Modifier.fillMaxWidth(),
                         label = { Text("Email (необязательно)") },
+                        supportingText = {
+                            if (email.isNotBlank()) Text(
+                                if (AuthFormRules.validOptionalEmail(email)) "✓ Формат email корректен"
+                                else "Проверьте формат email")
+                        },
+                        isError = email.isNotBlank() && !AuthFormRules.validOptionalEmail(email),
                         singleLine = true, enabled = !submitting,
                     )
                     Spacer(Modifier.height(8.dp))
