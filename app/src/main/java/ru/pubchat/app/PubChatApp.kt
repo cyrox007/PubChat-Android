@@ -158,10 +158,11 @@ private fun AuthScreen(
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
     var intent by remember { mutableStateOf("open") }
     var submitting by remember { mutableStateOf(false) }
     val canSubmit = !submitting && if (registration) {
-        AuthFormRules.canRegister(handle, name, password)
+        AuthFormRules.canRegisterConfirmed(handle, name, password, confirmation)
     } else {
         AuthFormRules.canLogin(identifier, password)
     }
@@ -174,6 +175,7 @@ private fun AuthScreen(
         registration = nextRegistration
         // Never keep a password entered in one auth flow when switching modes.
         password = ""
+        confirmation = ""
     }
 
     fun submit() {
@@ -302,6 +304,36 @@ private fun AuthScreen(
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true, enabled = !submitting,
                         isError = password.isNotEmpty() && password.length < 8,
+                    )
+                    if (password.isNotEmpty()) {
+                        val strength = AuthFormRules.passwordStrength(password)
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { strength / 4f },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            "Надёжность: " + when (strength) {
+                                0, 1 -> "низкая"
+                                2 -> "средняя"
+                                3 -> "хорошая"
+                                else -> "высокая"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        confirmation, { confirmation = it.take(128) }, Modifier.fillMaxWidth(),
+                        label = { Text("Повтор пароля") },
+                        supportingText = {
+                            if (confirmation.isNotEmpty()) Text(
+                                if (AuthFormRules.passwordConfirmationMatches(password, confirmation))
+                                    "✓ Пароли совпадают" else "Пароли не совпадают")
+                        },
+                        visualTransformation = PasswordVisualTransformation(), singleLine = true,
+                        enabled = !submitting,
+                        isError = confirmation.isNotEmpty() &&
+                            !AuthFormRules.passwordConfirmationMatches(password, confirmation),
                     )
                     Spacer(Modifier.height(12.dp))
                     Text("Намерение общения", fontWeight = FontWeight.SemiBold,
