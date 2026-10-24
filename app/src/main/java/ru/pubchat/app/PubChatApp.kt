@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
 import android.app.Activity
+import android.media.MediaPlayer
 import android.content.pm.PackageManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -1875,8 +1876,13 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
     val context = LocalContext.current
     val recorder = remember(space?.uid) { SpaceVoiceRecorder(context.applicationContext) }
     var voiceRecording by remember(space?.uid) { mutableStateOf(false) }
+    val voiceDraft = remember(space?.uid) { mutableStateOf<java.io.File?>(null) }
     DisposableEffect(recorder) {
-        onDispose { recorder.cancel() }
+        onDispose {
+            recorder.cancel()
+            voiceDraft.value?.delete()
+            voiceDraft.value = null
+        }
     }
     val microphonePermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -1970,13 +1976,28 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                 },
             )
         }
+        voiceDraft.value?.let { file ->
+            SpaceVoiceDraftReview(
+                file = file,
+                canSend = connection == "connected" && !sending,
+                onSend = {
+                    // Ownership transfers to AppController; it deletes the file after enqueue.
+                    voiceDraft.value = null
+                    onVoiceNote(file)
+                },
+                onCancel = {
+                    voiceDraft.value = null
+                    file.delete()
+                },
+            )
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(
                 onClick = {
                     if (voiceRecording) {
                         runCatching { recorder.finish() }
-                            .onSuccess { voiceRecording = false; onVoiceNote(it) }
+                            .onSuccess { voiceRecording = false; voiceDraft.value = it }
                             .onFailure { voiceRecording = false; onVoiceError(it.message ?: "Запись повреждена") }
                     } else {
                         val permission = android.Manifest.permission.RECORD_AUDIO
@@ -1987,15 +2008,16 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                         } else microphonePermission.launch(permission)
                     }
                 },
-                enabled = connection == "connected",
-            ) { Text(if (voiceRecording) "■ Отправить голосовое" else "🎙 Голосовое") }
+                enabled = voiceRecording || (connection == "connected" && voiceDraft.value == null && !sending),
+            ) { Text(if (voiceRecording) "■ Завершить запись" else "🎙 Голосовое") }
             if (voiceRecording) TextButton(onClick = {
                 recorder.cancel()
                 voiceRecording = false
             }) { Text("Отмена") }
             TextButton(
                 onClick = launchVideoCapture,
-                enabled = connection == "connected" && !voiceRecording && !sending,
+                enabled = connection == "connected" && !voiceRecording &&
+                    voiceDraft.value == null && !sending,
             ) { Text("🎥 Видеосообщение") }
         }
 
@@ -2032,6 +2054,91 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             }
         }
     }
+}
+
+
+// A draft must be explicitly reviewed before it is sent through the Space
+// attachment transport. MediaPlayer never leaves this dialog's lifecycle.
+@Composable
+private fun SpaceVoiceDraftReview(
+    file: java.io.File,
+    canSend: Boolean,
+    onSend: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val player = remember(file) { MediaPlayer() }
+    var prepared by remember(file) { mutableStateOf(false) }
+    var preparing by remember(file) { mutableStateOf(false) }
+    var playing by remember(file) { mutableStateOf(false) }
+    var playbackError by remember(file) { mutableStateOf<String?>(null) }
+    DisposableEffect(player) {
+        onDispose { runCatching { player.release() } }
+    }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Прослушайте голосовое") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Запись готова. Прослушайте её, затем отправьте или удалите.")
+                TextButton(
+                    enabled = !preparing,
+                    onClick = {
+                        playbackError = null
+                        runCatching {
+                            if (playing) {
+                                player.pause()
+                                playing = false
+                            } else if (prepared) {
+                                player.start()
+                                playing = true
+                            } else {
+                                preparing = true
+                                player.reset()
+                                player.setDataSource(file.absolutePath)
+                                player.setOnPreparedListener {
+                                    preparing = false
+                                    prepared = true
+                                    it.start()
+                                    playing = true
+                                }
+                                player.setOnCompletionListener {
+                                    playing = false
+                                    it.seekTo(0)
+                                }
+                                player.setOnErrorListener { _, _, _ ->
+                                    preparing = false
+                                    prepared = false
+                                    playing = false
+                                    playbackError = "Не удалось воспроизвести запись"
+                                    true
+                                }
+                                player.prepareAsync()
+                            }
+                        }.onFailure {
+                            preparing = false
+                            prepared = false
+                            playing = false
+                            playbackError = "Не удалось воспроизвести запись"
+                        }
+                    },
+                ) { Text(if (playing) "⏸ Пауза" else if (preparing) "Подготавливаем…" else "▶ Прослушать") }
+                playbackError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                if (!canSend) {
+                    Text("Для отправки дождитесь подключения к пространству.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSend, enabled = canSend && !preparing) {
+                Text("Отправить")
+            }
+        },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Удалить запись") } },
+    )
 }
 
 @Composable
