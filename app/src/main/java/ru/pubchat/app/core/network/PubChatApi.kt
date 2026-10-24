@@ -494,6 +494,76 @@ class PubChatApi(
         return root.getJSONObject("envelopes")
     }
 
+    /**
+     * Upload only AES-GCM ciphertext to the existing /crypto/v1 attachment API.
+     * Form field must be "file"; no plaintext content, key, nonce or descriptor
+     * enters multipart metadata. Exact response digest and bytes are checked.
+     */
+    internal fun uploadEncryptedAttachment(uid: String, ciphertext: ByteArray): JSONObject {
+        val id = java.util.UUID.fromString(uid).toString()
+        require(id == uid)
+        require(ciphertext.size in 17..(2 * 1024 * 1024 + 16))
+        val token = requireNotNull(accessToken()?.takeIf(String::isNotBlank)) {
+            "Нужна авторизация для защищённого вложения"
+        }
+        val csrf = csrfProof()
+        val boundary = "PubChatEncrypted" + java.util.UUID.randomUUID().toString().replace("-", "")
+        val first = ("--$boundary\r\n" +
+            "Content-Disposition: form-data; name=\"file\"; filename=\"ciphertext.bin\"\r\n" +
+            "Content-Type: application/octet-stream\r\n\r\n").toByteArray(Charsets.UTF_8)
+        val last = "\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8)
+        val connection = (URL(BuildConfig.API_BASE_URL.trimEnd('/') +
+            "/crypto/v1/attachments/$id").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            instanceFollowRedirects = false
+            doOutput = true
+            connectTimeout = 15_000
+            readTimeout = 35_000
+            setFixedLengthStreamingMode(first.size + ciphertext.size + last.size)
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("X-PubChat-Device-ID", deviceUid())
+            setRequestProperty("X-CSRF-Token", csrf)
+            setRequestProperty("Cookie", listOfNotNull(
+                refreshCookie()?.takeIf { it.isNotBlank() },
+                "XSRF-TOKEN=$csrf").joinToString("; "))
+            setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Cache-Control", "no-store")
+        }
+        try {
+            connection.outputStream.use { stream ->
+                stream.write(first)
+                stream.write(ciphertext)
+                stream.write(last)
+            }
+            val status = connection.responseCode
+            if (status !in 200..299)
+                throw ApiFailure(status, "Зашифрованный файл не принят (HTTP $status)")
+            val body = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8)
+                .use { it.readText() })
+            require(body.getString("status") == "ok")
+            require(body.getString("attachment_uid") == uid)
+            require(body.getInt("ciphertext_size") == ciphertext.size)
+            val computed = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(ciphertext).joinToString("") { "%02x".format(it.toInt() and 255) }
+            require(body.getString("ciphertext_sha256") == computed) {
+                "Сервер не подтвердил целостность зашифрованного файла"
+            }
+            require(!body.optBoolean("attached", false)) {
+                "Вложение уже связано с другим сообщением"
+            }
+            return body
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    internal fun deletePendingEncryptedAttachment(uid: String) {
+        val canonical = java.util.UUID.fromString(uid).toString()
+        require(uid == canonical)
+        request("DELETE", "/crypto/v1/attachments/$canonical")
+    }
+
     internal fun sendCommittedE2eeBatch(batch: E2eeFanoutBatch.Batch): JSONObject {
         val body = request("POST", "/crypto/v1/messages", batch.requestBody()).body
         return E2eeSendAck.verifiedMessage(body, batch)
