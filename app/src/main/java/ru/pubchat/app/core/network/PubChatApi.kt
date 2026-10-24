@@ -171,6 +171,14 @@ class PubChatApi(
         return parseIdentity(JSONObject(response.body), response.refreshCookie)
     }
 
+    fun handleAvailable(handle: String): Boolean {
+        require(ru.pubchat.app.core.auth.AuthFormRules.validHandle(handle))
+        val path = "/identity/v2/handle-availability?handle=" +
+            java.net.URLEncoder.encode(handle.trim(), "UTF-8")
+        return JSONObject(request("GET", path, includeAccessToken = false,
+            includeRefreshCookie = false).body).getBoolean("available")
+    }
+
     fun register(
         handle: String,
         displayName: String,
