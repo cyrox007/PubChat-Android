@@ -232,6 +232,14 @@ class AppController(context: Context) {
         }
     }
 
+    fun checkHandleAvailability(handle: String, callback: (Boolean?, String?) -> Unit) {
+        executor.execute {
+            runCatching { api.handleAvailable(handle) }
+                .onSuccess { available -> main.post { callback(available, null) } }
+                .onFailure { main.post { callback(null, "Не удалось проверить username") } }
+        }
+    }
+
     fun register(handle: String, displayName: String, email: String, password: String, socialIntent: String, onState: (AppState) -> Unit) {
         if (handle.length < 3 || password.length < 8) {
             onState(AppState.SignedOut("@handle — от 3 символов, пароль — от 8"))
