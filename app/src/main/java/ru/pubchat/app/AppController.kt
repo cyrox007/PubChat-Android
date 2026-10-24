@@ -1133,6 +1133,28 @@ class AppController(context: Context) {
         }
     }
 
+    /**
+     * Save an authorized Space/legacy DM attachment to a user-selected SAF
+     * document. Encrypted DM messages deliberately never expose raw attachments.
+     */
+    fun saveAttachment(attachment: PubChatApi.Attachment, destination: Uri,
+                       onDone: (String?) -> Unit) {
+        executor.execute {
+            runCatching {
+                authenticated {
+                    val output = appContext.contentResolver.openOutputStream(destination, "wt")
+                        ?: error("Не удалось открыть документ для сохранения")
+                    output.use { api.downloadAttachment(attachment.url, it) }
+                }
+            }.onSuccess { main.post { onDone(null) } }
+                .onFailure { failure ->
+                    // CreateDocument produced a fresh URI; discard partial files.
+                    runCatching { appContext.contentResolver.delete(destination, null, null) }
+                    main.post { onDone(humanMessage(failure)) }
+                }
+        }
+    }
+
     fun sendSpaceAttachment(
         uri: Uri,
         accountUid: String,
