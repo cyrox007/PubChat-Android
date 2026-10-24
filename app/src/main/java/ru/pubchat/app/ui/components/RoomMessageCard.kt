@@ -1,6 +1,13 @@
 package ru.pubchat.app.ui.components
 
 import android.media.MediaPlayer
+import android.app.DownloadManager
+import android.content.Context
+import android.net.Uri
+import android.os.Environment
+import android.widget.VideoView
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -192,20 +198,73 @@ internal fun RoomMessageCard(
 @Composable
 private fun MessageAttachment(attachment: PubChatApi.Attachment, contentType: String) {
     val url = publicMediaUrl(attachment.url)
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
     var openError by remember(attachment.url) { mutableStateOf(false) }
+    var preview by remember(attachment.url) { mutableStateOf<String?>(null) }
     if (url == null) { Text("Вложение недоступно"); return }
     val image = attachment.mimeType?.startsWith("image/") == true || contentType == "image"
     val audio = attachment.mimeType?.startsWith("audio/") == true || contentType in setOf("audio", "voice")
-    if (image) SubcomposeAsyncImage(url, attachment.name, Modifier.fillMaxWidth().heightIn(min = 64.dp, max = 180.dp).clip(RoundedCornerShape(10.dp))
-        .clickable { runCatching { uriHandler.openUri(url) }.onFailure { openError = true } }, contentScale = ContentScale.Fit,
-        loading = { Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } },
-        error = { Box(Modifier.fillMaxWidth().height(64.dp).background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) { Text("Изображение недоступно · Открыть", style = MaterialTheme.typography.bodySmall) } })
+    val video = attachment.mimeType?.startsWith("video/") == true || contentType == "video"
+    if (image) SubcomposeAsyncImage(
+        url, attachment.name,
+        Modifier.fillMaxWidth().heightIn(min = 64.dp, max = 180.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { preview = "image" },
+        contentScale = ContentScale.Fit,
+        loading = { Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(24.dp))
+        } },
+        error = { Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
+            Text("Изображение недоступно", style = MaterialTheme.typography.bodySmall)
+        } },
+    )
     else if (audio) AudioMessage(url)
-    else TextButton(onClick = { runCatching { uriHandler.openUri(url) }.onFailure { openError = true } }) {
-        Text(if (contentType == "video") "▶ ${attachment.name}" else "📎 ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
+    else if (video) TextButton(onClick = { preview = "video" }) {
+        Text("▶ ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
-    if (openError) Text("Не удалось открыть вложение", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+    else TextButton(onClick = {
+        runCatching {
+            val name = attachment.name.substringAfterLast('/').take(128)
+                .ifBlank { "pubchat-file" }
+            val request = DownloadManager.Request(Uri.parse(url))
+                .setTitle(name)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, name)
+            val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            manager.enqueue(request)
+        }.onFailure { openError = true }
+    }) {
+        Text("↓ ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+    if (preview != null) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { preview = null }) {
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { preview = null }) { Text("Закрыть") }
+                    }
+                    if (preview == "image") {
+                        AsyncImage(
+                            url, attachment.name, Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 540.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    } else {
+                        AndroidView(
+                            factory = { ctx ->
+                                VideoView(ctx).apply {
+                                    setVideoURI(Uri.parse(url))
+                                    setMediaController(android.widget.MediaController(ctx))
+                                    setOnPreparedListener { player -> player.isLooping = false; start() }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(260.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+    if (openError) Text("Не удалось загрузить вложение", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
