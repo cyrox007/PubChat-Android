@@ -1134,14 +1134,18 @@ class AppController(context: Context) {
         executor.execute {
             runCatching {
                 val resolver = appContext.contentResolver
-                val mime = resolver.getType(uri) ?: "application/octet-stream"
+                val mime = resolver.getType(uri) ?: when {
+                    uri.scheme == "file" && uri.path?.endsWith(".m4a", ignoreCase = true) == true -> "audio/mp4"
+                    else -> "application/octet-stream"
+                }
                 val allowed = mime.startsWith("image/") || mime.startsWith("video/") ||
                     mime.startsWith("audio/") || mime in setOf("application/pdf",
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 require(allowed) { "Этот тип файла не поддерживается" }
-                var name = "attachment"
-                resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                var name = if (uri.scheme == "file") uri.lastPathSegment ?: "attachment"
+                    else "attachment"
+                if (uri.scheme != "file") resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                     if (cursor.moveToFirst()) name = cursor.getString(0) ?: name
                 }
                 val bytes = resolver.openInputStream(uri)?.use { stream ->
