@@ -246,6 +246,26 @@ internal class E2eeSessionStore(context: Context) {
         }
     }
 
+    /**
+     * Authenticated text OR encrypted attachment descriptor. Parse and validate
+     * all encrypted metadata before committing ratchet advancement.
+     */
+    fun decryptInboundPayload(
+        account: String,
+        device: String,
+        identity: CryptoDeviceMaterial,
+        checkedSender: PeerDirectoryInspection,
+        envelope: E2eeInboundBootstrap.Envelope,
+    ): E2eeInboundPayload = mutate(account, device) { state ->
+        require(account == identity.accountUid && device == identity.deviceUid)
+        val plaintext = E2eeInboundBootstrap.decrypt(state, identity, checkedSender, envelope)
+        try {
+            E2eeInboundPayload.decode(plaintext)
+        } finally {
+            plaintext.fill(0)
+        }
+    }
+
     /** Only after confirmed remote device revocation, never on ordinary logout. */
     fun clearAfterServerRevocation(account: String, device: String) = synchronized(processLock) {
         file(account, device).delete()
