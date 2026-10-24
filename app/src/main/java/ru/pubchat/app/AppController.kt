@@ -749,6 +749,23 @@ class AppController(context: Context) {
         }
     }
 
+    /** Recover only identifiers from validated, Keystore-wrapped durable E2EE state. */
+    fun recoverEncryptedPendingIds(
+        ownerUid: String, peerUid: String,
+        onResult: (List<String>, String?) -> Unit,
+    ) {
+        executor.execute {
+            runCatching {
+                val local = cryptoDeviceStore.read(ownerUid)
+                    ?: return@runCatching emptyList<String>()
+                e2eeSessionStore.pendingBatchIdsForPeer(ownerUid, local.deviceUid, peerUid)
+            }.onSuccess { ids -> main.post { onResult(ids, null) } }
+                .onFailure { error -> main.post {
+                    onResult(emptyList(), "E2EE: " + (error.message ?: "Не удалось восстановить отправки"))
+                } }
+        }
+    }
+
     /**
      * Native E2EE send uses the same immutable ciphertext batch across retries.
      * Never falls back to plaintext when crypto, trust or transport fails.
@@ -760,8 +777,8 @@ class AppController(context: Context) {
         frontId: String,
         onResult: (Boolean, String?) -> Unit,
     ) {
-        if (content.isBlank() || frontId.isBlank()) {
-            onResult(false, "Введите сообщение и идентификатор отправки")
+        if (frontId.isBlank()) {
+            onResult(false, "Не указан идентификатор E2EE-отправки")
             return
         }
         val epoch = messengerEpoch
@@ -781,6 +798,7 @@ class AppController(context: Context) {
                 val pendingExists = e2eeSessionStore.hasPendingBatch(
                     ownerUid, local.deviceUid, frontId)
                 if (!pendingExists) {
+                    require(content.isNotBlank()) { "Нет сохранённого E2EE-пакета для восстановления" }
                     e2eeSessionStore.bootstrapAndPrepareBatch(
                         ownerUid, local.deviceUid, local, verified, frontId,
                         content.trim().toByteArray(Charsets.UTF_8))
