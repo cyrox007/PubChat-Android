@@ -803,6 +803,41 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         }
     }
 
+    var pendingOutgoingCall by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    val outgoingCallPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        val pending = pendingOutgoingCall
+        pendingOutgoingCall = null
+        if (pending != null) {
+            val permissions = if (pending.second)
+                listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
+            else listOf(Manifest.permission.RECORD_AUDIO)
+            if (permissions.all { granted[it] == true ||
+                    callActivity?.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }) {
+                controller.startCall(pending.first, pending.second)
+            } else {
+                messengerError = "Для звонка необходимо разрешить доступ к микрофону" +
+                    if (pending.second) " и камере." else "."
+            }
+        }
+    }
+
+    fun startOutgoingCall(peer: String, video: Boolean) {
+        val activity = callActivity ?: run {
+            messengerError = "Невозможно запросить разрешения на звонок"
+            return
+        }
+        val needed = if (video) listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
+            else listOf(Manifest.permission.RECORD_AUDIO)
+        val missing = needed.filter { activity.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) controller.startCall(peer, video)
+        else {
+            pendingOutgoingCall = peer to video
+            outgoingCallPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+
     fun hasCallPermissions(video: Boolean): Boolean {
         val activity = callActivity ?: return false
         val permissions = if (video) arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
@@ -1126,7 +1161,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
                     onCall = { video ->
                         val peer = activeDialog?.partnerUid
-                        if (peer != null && hasCallPermissions(video)) controller.startCall(peer, video)
+                        if (peer != null) startOutgoingCall(peer, video)
                     },
                     dialog = activeDialog,
                     messages = conversations[activeDialog?.partnerUid].orEmpty(),
