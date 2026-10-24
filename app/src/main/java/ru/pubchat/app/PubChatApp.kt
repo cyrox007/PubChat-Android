@@ -1922,12 +1922,13 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) onAttach(uri)
         }
+        var pendingVideo by remember(space?.uid) { mutableStateOf<android.net.Uri?>(null) }
         val captureVideo = rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
                 val mediaUri = result.data?.data
-                if (mediaUri != null) onAttach(mediaUri)
+                if (mediaUri != null) pendingVideo = mediaUri
                 else onVoiceError("Камера не вернула записанное видео. Выберите его через прикрепление файла.")
             }
         }
@@ -1939,6 +1940,34 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             }
             runCatching { captureVideo.launch(intent) }
                 .onFailure { onVoiceError("Не удалось открыть камеру: " + (it.message ?: "неизвестная ошибка")) }
+        }
+        pendingVideo?.let { videoUri ->
+            AlertDialog(
+                onDismissRequest = { pendingVideo = null },
+                title = { Text("Видеосообщение") },
+                text = {
+                    Column {
+                        Text("Посмотрите запись перед отправкой. Лимит вложения — 2 МБ.")
+                        AndroidView(
+                            factory = { ctx -> android.widget.VideoView(ctx).apply {
+                                setVideoURI(videoUri)
+                                setMediaController(android.widget.MediaController(ctx))
+                                setOnPreparedListener { start() }
+                            } },
+                            modifier = Modifier.fillMaxWidth().height(220.dp),
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pendingVideo = null
+                        onAttach(videoUri)
+                    }) { Text("Отправить") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingVideo = null }) { Text("Отмена") }
+                },
+            )
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
