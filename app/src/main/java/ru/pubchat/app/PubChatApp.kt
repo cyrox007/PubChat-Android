@@ -1202,6 +1202,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onAttach = { uri -> controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error } },
                     onVoiceNote = { file -> controller.sendSpaceVoiceNote(file, state.accountUid, state.displayName) { error -> chatError = error } },
                     onVoiceError = { error -> chatError = error },
+                    onSaveAttachment = { attachment, destination, done ->
+                        controller.saveAttachment(attachment, destination, done)
+                    },
                     onSend = send@{
                         if (roomReplySending || draft.isBlank()) return@send
                         val source = roomReply
@@ -1270,6 +1273,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     directoryChanged = dmDirectoryInspection?.requiresAcknowledgement == true,
                     onCheckDirectory = ::inspectDirectory,
                     onAcknowledgeDirectory = ::acknowledgeDirectory,
+                    onSaveAttachment = { attachment, destination, done ->
+                        controller.saveAttachment(attachment, destination, done)
+                    },
                     draft = dmDraft,
                     onDraft = { dmDraft = it },
                     selectedUid = selectedMessageUid,
@@ -1870,6 +1876,7 @@ private fun PersonContent(
 private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<PubChatApi.ChatMessage>, currentAccountUid: String, connection: String, error: String?, draft: String, onDraft: (String) -> Unit,
     reply: PubChatApi.ChatMessage?, sending: Boolean, onReply: (PubChatApi.ChatMessage) -> Unit, onCancelReply: () -> Unit,
     onAttach: (android.net.Uri) -> Unit, onVoiceNote: (java.io.File) -> Unit,
+    onSaveAttachment: (PubChatApi.Attachment, android.net.Uri, (String?) -> Unit) -> Unit,
     onVoiceError: (String) -> Unit, onSend: () -> Unit) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -1922,7 +1929,8 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                 val source = messages.find { it.uid == message.replyToUid }
                 RoomMessageCard(message, message.senderUid == currentAccountUid, source,
                     onReplyJump = source?.let { { scope.launch { listState.animateScrollToItem(messages.indexOf(it)) }; Unit } },
-                    onReply = if (message.contentType != "deleted") { { onReply(message) } } else null)
+                    onReply = if (message.contentType != "deleted") { { onReply(message) } } else null,
+                    onSaveAttachment = onSaveAttachment)
             }
         }
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -2165,6 +2173,7 @@ private fun MessengerChatContent(
     directoryChanged: Boolean,
     onCheckDirectory: () -> Unit,
     onAcknowledgeDirectory: () -> Unit,
+    onSaveAttachment: (PubChatApi.Attachment, android.net.Uri, (String?) -> Unit) -> Unit,
     draft: String,
     onDraft: (String) -> Unit,
     selectedUid: String?,
@@ -2239,7 +2248,9 @@ private fun MessengerChatContent(
                             ?: "🔒 E2EE-сообщение: не удалось проверить или расшифровать.",
                         attachmentName = null, attachments = emptyList(), replyContent = null,
                     ) else message
-                    RoomMessageCard(safeMessage, message.senderUid == currentAccountUid, null, onSelect = { onSelect(message.uid) })
+                    RoomMessageCard(safeMessage, message.senderUid == currentAccountUid, null,
+                        onSelect = { onSelect(message.uid) },
+                        onSaveAttachment = onSaveAttachment)
                     if (selectedUid == message.uid && message.contentType != "e2ee") {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { onActionMode("reply") }) { Text("Ответ") }
