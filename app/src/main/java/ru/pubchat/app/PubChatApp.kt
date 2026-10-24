@@ -1,6 +1,7 @@
 package ru.pubchat.app
 
 import ru.pubchat.app.core.calls.shouldShowCallDialog
+import ru.pubchat.app.core.media.SpaceVoiceRecorder
 import ru.pubchat.app.core.auth.AuthFormRules
 import androidx.compose.foundation.layout.imePadding
 
@@ -1132,6 +1133,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     reply = roomReply, sending = roomReplySending,
                     onReply = { roomReply = it }, onCancelReply = { roomReply = null },
                     onAttach = { uri -> controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error } },
+                    onVoiceNote = { file -> controller.sendSpaceVoiceNote(file, state.accountUid, state.displayName) { error -> chatError = error } },
+                    onVoiceError = { error -> chatError = error },
                     onSend = send@{
                         if (roomReplySending || draft.isBlank()) return@send
                         val source = roomReply
@@ -1799,9 +1802,25 @@ private fun PersonContent(
 @Composable
 private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<PubChatApi.ChatMessage>, currentAccountUid: String, connection: String, error: String?, draft: String, onDraft: (String) -> Unit,
     reply: PubChatApi.ChatMessage?, sending: Boolean, onReply: (PubChatApi.ChatMessage) -> Unit, onCancelReply: () -> Unit,
-    onAttach: (android.net.Uri) -> Unit, onSend: () -> Unit) {
+    onAttach: (android.net.Uri) -> Unit, onVoiceNote: (java.io.File) -> Unit,
+    onVoiceError: (String) -> Unit, onSend: () -> Unit) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val recorder = remember(space?.uid) { SpaceVoiceRecorder(context.applicationContext) }
+    var voiceRecording by remember(space?.uid) { mutableStateOf(false) }
+    DisposableEffect(recorder) {
+        onDispose { recorder.cancel() }
+    }
+    val microphonePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            runCatching { recorder.start() }
+                .onSuccess { voiceRecording = true }
+                .onFailure { onVoiceError(it.message ?: "Не удалось начать запись") }
+        } else onVoiceError("Для голосового сообщения нужен доступ к микрофону")
+    }
     var initialScroll by remember(space?.uid) { mutableStateOf(false) }
     LaunchedEffect(space?.uid, messages.lastOrNull()?.uid) {
         if (messages.isNotEmpty()) {
@@ -1837,6 +1856,31 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) onAttach(uri)
         }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(
+                onClick = {
+                    if (voiceRecording) {
+                        runCatching { recorder.finish() }
+                            .onSuccess { voiceRecording = false; onVoiceNote(it) }
+                            .onFailure { voiceRecording = false; onVoiceError(it.message ?: "Запись повреждена") }
+                    } else {
+                        val permission = android.Manifest.permission.RECORD_AUDIO
+                        if (context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+                            runCatching { recorder.start() }
+                                .onSuccess { voiceRecording = true }
+                                .onFailure { onVoiceError(it.message ?: "Не удалось начать запись") }
+                        } else microphonePermission.launch(permission)
+                    }
+                },
+                enabled = connection == "connected",
+            ) { Text(if (voiceRecording) "■ Отправить голосовое" else "🎙 Голосовое") }
+            if (voiceRecording) TextButton(onClick = {
+                recorder.cancel()
+                voiceRecording = false
+            }) { Text("Отмена") }
+        }
+
         if (reply != null) {
             Row(
                 Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant)
