@@ -1830,10 +1830,59 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                 modifier = Modifier.size(48.dp).semantics { contentDescription = "Прикрепить файл" }) {
                 Text("＋", fontSize = 24.sp, color = MaterialTheme.colorScheme.primary)
             }
+            SpaceVoiceNoteControl(
+                enabled = connection == "connected" && reply == null && !sending,
+                onRecorded = onAttach,
+            )
             Box(Modifier.weight(1f)) {
                 Composer(draft, onDraft, connection == "connected" && !sending, onSend, padded = false)
             }
         }
+    }
+}
+
+@Composable
+private fun SpaceVoiceNoteControl(
+    enabled: Boolean,
+    onRecorded: (android.net.Uri) -> Unit,
+) {
+    val context = LocalContext.current
+    val recorder = remember { ru.pubchat.app.core.audio.SpaceVoiceRecorder(context.applicationContext) }
+    var recording by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            runCatching { recorder.start() }
+                .onSuccess { recording = true; error = null }
+                .onFailure { error = "Не удалось начать запись голоса" }
+        } else error = "Для записи голосового сообщения необходим доступ к микрофону"
+    }
+    DisposableEffect(recorder) { onDispose { recorder.cancel() } }
+    Column {
+        IconButton(
+            enabled = enabled || recording,
+            onClick = {
+                if (recording) {
+                    runCatching { recorder.finish() }
+                        .onSuccess { onRecorded(it); error = null }
+                        .onFailure { error = "Запись не сохранена. Попробуйте ещё раз." }
+                    recording = false
+                } else {
+                    micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
+            modifier = Modifier.size(48.dp).semantics {
+                contentDescription = if (recording) "Завершить и отправить голосовое сообщение"
+                    else "Записать голосовое сообщение"
+            },
+        ) { Text(if (recording) "■" else "🎙", fontSize = 20.sp) }
+        if (recording) TextButton(onClick = { recorder.cancel(); recording = false }) {
+            Text("Отмена")
+        }
+        if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.labelSmall)
     }
 }
 
