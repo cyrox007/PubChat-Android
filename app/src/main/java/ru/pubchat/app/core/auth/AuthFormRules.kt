@@ -9,7 +9,7 @@ object AuthFormRules {
     fun validOptionalEmail(email: String): Boolean {
         val trimmed = email.trim()
         return trimmed.isEmpty() || (trimmed.length <= 254 &&
-            android.util.Patterns.EMAIL_ADDRESS.matcher(trimmed).matches())
+            Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(trimmed))
     }
 
     fun validHandle(handle: String): Boolean = handlePattern.matches(handle.trim())
