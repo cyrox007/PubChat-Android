@@ -110,6 +110,7 @@ fun PubChatApp(controller: AppController, deepLink: PubChatDeepLink? = null, onD
     when (val current = state) {
         AppState.Booting -> LoadingScreen()
         is AppState.SignedOut -> AuthScreen(
+            controller = controller,
             error = current.error,
             onLogin = { identifier, password, done -> controller.login(identifier, password) { state = it; done() } },
             onRegister = { handle, name, email, password, intent, done -> controller.register(handle, name, email, password, intent) { state = it; done() } },
@@ -148,6 +149,7 @@ private fun LoadingScreen() {
 
 @Composable
 private fun AuthScreen(
+    controller: AppController,
     error: String?,
     onLogin: (String, String, () -> Unit) -> Unit,
     onRegister: (String, String, String, String, String, () -> Unit) -> Unit,
@@ -161,8 +163,27 @@ private fun AuthScreen(
     var confirmation by remember { mutableStateOf("") }
     var intent by remember { mutableStateOf("open") }
     var submitting by remember { mutableStateOf(false) }
+    var handleAvailability by remember { mutableStateOf<Boolean?>(null) }
+    var handleChecking by remember { mutableStateOf(false) }
+    var handleCheckError by remember { mutableStateOf(false) }
+    LaunchedEffect(registration, handle) {
+        handleAvailability = null
+        handleCheckError = false
+        handleChecking = false
+        if (!registration || !AuthFormRules.validHandle(handle)) return@LaunchedEffect
+        handleChecking = true
+        kotlinx.coroutines.delay(450)
+        val checkedHandle = handle
+        controller.checkHandleAvailability(checkedHandle) { available, _ ->
+            if (registration && handle == checkedHandle) {
+                handleAvailability = available
+                handleCheckError = available == null
+                handleChecking = false
+            }
+        }
+    }
     val canSubmit = !submitting && if (registration) {
-        AuthFormRules.canRegisterConfirmed(handle, name, password, confirmation)
+        AuthFormRules.canRegisterConfirmed(handle, name, password, confirmation) && handleAvailability != false && !handleChecking
     } else {
         AuthFormRules.canLogin(identifier, password)
     }
@@ -284,6 +305,13 @@ private fun AuthScreen(
                         singleLine = true, enabled = !submitting,
                         isError = handle.isNotEmpty() && !AuthFormRules.validHandle(handle),
                     )
+                    if (handleChecking) Text("Проверяем username…", style = MaterialTheme.typography.bodySmall)
+                    else if (handleAvailability == false) Text("Этот username занят", color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                    else if (handleAvailability == true) Text("✓ Username предварительно свободен",
+                        style = MaterialTheme.typography.bodySmall)
+                    else if (handleCheckError) Text("Доступность не удалось проверить; сервер проверит при регистрации",
+                        style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         name, { name = it.take(80) }, Modifier.fillMaxWidth(),
