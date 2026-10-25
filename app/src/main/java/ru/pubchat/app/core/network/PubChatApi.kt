@@ -155,7 +155,7 @@ class PubChatApi(
         val unreadCount: Int,
     )
 
-    data class Notice(val uid: String, val title: String, val body: String, val read: Boolean, val targetUid: String?, val surface: String?)
+    data class Notice(val uid: String, val title: String, val body: String, val read: Boolean, val targetUid: String?, val surface: String?, val kind: String? = null)
 
     data class RealtimeTicket(
         val ticket: String,
@@ -726,28 +726,11 @@ class PubChatApi(
         return root.optJSONObject("preferences")?.optBoolean("friend_birthday_reminders", false) ?: false
     }
 
-    fun notifications(): List<Notice> {
-        // First-party server synchronizes deduplicated birthday + activity
-        // reminders. This is in-app delivery, not a background FCM message.
-        request("POST", "/notifications/v1/sync")
-        val root = JSONObject(request("GET", "/notifications/v1?limit=50").body)
-        val items = root.optJSONArray("notifications") ?: JSONArray()
-        return buildList {
-            for (index in 0 until items.length()) {
-                val entry = items.optJSONObject(index) ?: continue
-                val uid = entry.optString("uid")
-                if (uid.isBlank()) continue
-                val payload = entry.optJSONObject("payload")
-                add(Notice(
-                    uid = uid,
-                    title = entry.optString("title").ifBlank { "Уведомление PubChat" },
-                    body = entry.optString("body").ifBlank { entry.optString("message") },
-                    read = entry.optBoolean("is_read", entry.optBoolean("read", false)),
-                    targetUid = payload?.optNullableString("space_uid") ?: payload?.optNullableString("peer_uid") ?: entry.optNullableString("target_uid"),
-                    surface = payload?.optNullableString("surface") ?: entry.optNullableString("surface"),
-                ))
-            }
-        }
+    fun notifications(syncReminders: Boolean = true): List<Notice> {
+        // Only explicit Activity refresh synchronizes birthday/activity reminders.
+        // Foreground polling is read-only and must not create repeated DB writes.
+        if (syncReminders) request("POST", "/notifications/v1/sync")
+        return parseNotificationsResponse(request("GET", "/notifications/v1?limit=50").body)
     }
 
     fun markNotificationRead(uid: String) {
