@@ -515,6 +515,14 @@ class AppController(context: Context) {
         }
     }
 
+    fun pollNotifications(onResult: (List<PubChatApi.Notice>, String?) -> Unit) {
+        executor.execute {
+            runCatching { authenticated { api.notifications(syncReminders = false) } }
+                .onSuccess { items -> main.post { onResult(items, null) } }
+                .onFailure { error -> main.post { onResult(emptyList(), humanMessage(error)) } }
+        }
+    }
+
     fun markNotificationRead(uid: String, onDone: (String?) -> Unit) = messengerAction(onDone) {
         api.markNotificationRead(uid)
     }
