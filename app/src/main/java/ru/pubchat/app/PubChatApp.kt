@@ -57,6 +57,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import ru.pubchat.app.core.push.AppVisibleSpace
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -506,6 +516,14 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     val callActivity = LocalContext.current as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
     var notices by remember { mutableStateOf<List<PubChatApi.Notice>>(emptyList()) }
+    var foreground by remember { mutableStateOf(true) }
+    var observedSpaceReplies by remember(state.accountUid) { mutableStateOf<Set<String>?>(null) }
+    var activeReplyAlert by remember(state.accountUid) { mutableStateOf<PubChatApi.Notice?>(null) }
+    val liveSection by rememberUpdatedState(section)
+    val liveSpaceUid by rememberUpdatedState(activeSpace?.uid)
+    SideEffect {
+        AppVisibleSpace.spaceUid = if (section == AppSection.SPACE) activeSpace?.uid else null
+    }
     var noticesLoading by remember { mutableStateOf(false) }
     var noticesError by remember { mutableStateOf<String?>(null) }
     var birthdayRemindersEnabled by remember { mutableStateOf(false) }
@@ -522,20 +540,81 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
+                    foreground = true
+                    AppVisibleSpace.foreground = true
                     controller.setForeground(true)
                     controller.connectCalls(onStatus)
                 }
-                Lifecycle.Event.ON_STOP -> controller.setForeground(false)
+                Lifecycle.Event.ON_STOP -> {
+                    foreground = false
+                    AppVisibleSpace.foreground = false
+                    controller.setForeground(false)
+                }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+        AppVisibleSpace.foreground = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        foreground = AppVisibleSpace.foreground
         controller.connectCalls(onStatus)
         onDispose {
+            AppVisibleSpace.foreground = false
+            AppVisibleSpace.spaceUid = null
             lifecycleOwner.lifecycle.removeObserver(observer)
             controller.disconnectCalls()
             controller.closeSpace()
             controller.closeMessenger()
+        }
+    }
+
+    // Durable inbox is the foreground fallback if FCM is unavailable or a
+    // device delays Firebase delivery. Keep polling read-only, lifecycle-scoped,
+    // and do not show an old unread notification as if it just arrived.
+    fun acceptNotificationSnapshot(items: List<PubChatApi.Notice>, error: String?) {
+        if (error != null) return
+        notices = items
+        val replyItems = items.filter { it.kind == "space_reply" }
+        val previous = observedSpaceReplies
+        if (previous != null) {
+            val fresh = replyItems.firstOrNull {
+                !it.read && it.uid !in previous &&
+                    liveSection != AppSection.NOTIFICATIONS &&
+                    !(liveSection == AppSection.SPACE && it.targetUid == liveSpaceUid)
+            }
+            if (fresh != null) activeReplyAlert = fresh
+        }
+        observedSpaceReplies = (previous.orEmpty().toList() + replyItems.map { it.uid })
+            .takeLast(200).toSet()
+    }
+
+    LaunchedEffect(controller, state.accountUid, foreground) {
+        if (!foreground) return@LaunchedEffect
+        while (isActive) {
+            controller.pollNotifications { items, error ->
+                if (isActive) acceptNotificationSnapshot(items, error)
+            }
+            delay(15_000L)
+        }
+    }
+
+    LaunchedEffect(activeReplyAlert?.uid) {
+        if (activeReplyAlert != null) {
+            delay(8_000L)
+            activeReplyAlert = null
+        }
+    }
+
+    // Reading the quoted conversation should clear its personal alerts,
+    // not leave a stale Activity badge after the user already saw the reply.
+    LaunchedEffect(section, activeSpace?.uid, notices) {
+        val roomUid = activeSpace?.uid
+        if (section == AppSection.SPACE && roomUid != null) {
+            val received = notices.filter { it.kind == "space_reply" && !it.read && it.targetUid == roomUid }
+            if (received.isNotEmpty()) {
+                val ids = received.map { it.uid }.toSet()
+                notices = notices.map { if (it.uid in ids) it.copy(read = true) else it }
+                received.forEach { item -> controller.markNotificationRead(item.uid) { /* Retry on next refresh */ } }
+            }
         }
     }
 
@@ -780,9 +859,16 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             if (error == null) notices = notices.map { if (it.uid == notice.uid) it.copy(read = true) else it }
             else noticesError = error
         }
+        if (activeReplyAlert?.uid == notice.uid) activeReplyAlert = null
         val target = notice.targetUid ?: return
         when (notice.surface) {
-            "space", "room" -> state.spaces.find { it.uid == target }?.let { openSpace(it) }
+            "space", "room" -> {
+                if (runCatching { java.util.UUID.fromString(target) }.isSuccess) {
+                    openSpace(state.spaces.find { it.uid == target } ?: PubChatApi.SpaceSummary(
+                        target, "Пространство", null, null, null, null, null, null
+                    ))
+                }
+            }
             "messenger", "dm" -> loadDialogsAndConnect(target)
         }
     }
@@ -1096,7 +1182,17 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                         icon = { Icon(painterResource(R.drawable.ic_messages), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Чаты", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.NOTIFICATIONS,
                         onClick = { controller.closeMessenger(); section = AppSection.NOTIFICATIONS; loadNotices() },
-                        icon = { Icon(painterResource(R.drawable.ic_notifications), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Активность", fontSize = 10.sp, maxLines = 1, softWrap = false) })
+                        icon = {
+                            androidx.compose.material3.BadgedBox(badge = {
+                                val unread = notices.count { !it.read }
+                                if (unread > 0) androidx.compose.material3.Badge {
+                                    Text(if (unread > 99) "99+" else unread.toString())
+                                }
+                            }) {
+                                Icon(painterResource(R.drawable.ic_notifications), contentDescription = null,
+                                    modifier = Modifier.size(23.dp))
+                            }
+                        }, label = { Text("Активность", fontSize = 10.sp, maxLines = 1, softWrap = false) })
                     NavigationBarItem(selected = section == AppSection.PROFILE,
                         onClick = { controller.closeMessenger(); section = AppSection.PROFILE },
                         icon = { Icon(painterResource(R.drawable.ic_profile), contentDescription = null, modifier = Modifier.size(23.dp)) }, label = { Text("Профиль", fontSize = 10.sp, maxLines = 1, softWrap = false) })
@@ -1418,6 +1514,34 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     },
                 )
               }
+            }
+            AnimatedVisibility(
+                visible = foreground && activeReplyAlert != null,
+                modifier = Modifier.align(Alignment.TopCenter).padding(12.dp),
+                enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { -it / 2 },
+                exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { -it / 2 },
+            ) {
+                val notice = activeReplyAlert
+                if (notice != null) Card(
+                    modifier = Modifier.fillMaxWidth().clickable { openNotice(notice) },
+                    elevation = CardDefaults.cardElevation(defaultElevation = 7.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(notice.title, style = MaterialTheme.typography.titleSmall)
+                            Text(notice.body, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                        }
+                        TextButton(onClick = { openNotice(notice) }) { Text("Открыть") }
+                        IconButton(
+                            onClick = { activeReplyAlert = null },
+                            modifier = Modifier.size(40.dp).semantics { contentDescription = "Закрыть уведомление" },
+                        ) { Text("×", fontSize = 24.sp) }
+                    }
+                }
             }
         }
     }
