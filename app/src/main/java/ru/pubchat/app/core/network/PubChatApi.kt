@@ -955,6 +955,43 @@ class PubChatApi(
 }
 
 
+
+/**
+ * The v1 notifications API returns top-level kind/context_space_uid, not a
+ * nested payload object. Resolve destinations from the server-owned context,
+ * so tapping a personal Space reply works across Android sections.
+ */
+internal fun parseNotificationsResponse(body: String): List<PubChatApi.Notice> {
+    val items = JSONObject(body).optJSONArray("notifications") ?: JSONArray()
+    return buildList {
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: continue
+            val uid = item.optString("uid").takeIf { it.isNotBlank() } ?: continue
+            val payload = item.optJSONObject("payload")
+            val kind = item.optString("kind").takeIf { it.isNotBlank() }
+            val contextSpace = item.optString("context_space_uid")
+                .takeIf { it.isNotBlank() && it != "null" }
+            val target = contextSpace
+                ?: payload?.optString("space_uid")?.takeIf { it.isNotBlank() }
+                ?: payload?.optString("peer_uid")?.takeIf { it.isNotBlank() }
+                ?: item.optString("target_uid").takeIf { it.isNotBlank() && it != "null" }
+            val surface = if (kind == "space_reply") "space"
+                else payload?.optString("surface")?.takeIf { it.isNotBlank() }
+                    ?: item.optString("surface").takeIf { it.isNotBlank() && it != "null" }
+                    ?: if (contextSpace != null) "space" else null
+            add(PubChatApi.Notice(
+                uid = uid,
+                title = item.optString("title").ifBlank { "Уведомление PubChat" },
+                body = item.optString("body").ifBlank { item.optString("message") },
+                read = item.optBoolean("is_read", item.optBoolean("read", false)),
+                targetUid = target,
+                surface = surface,
+                kind = kind,
+            ))
+        }
+    }
+}
+
 internal fun parseFriendshipPage(body: String, key: String): PubChatApi.FriendshipPage {
     val root = JSONObject(body)
     val items = root.optJSONArray(key) ?: JSONArray()
