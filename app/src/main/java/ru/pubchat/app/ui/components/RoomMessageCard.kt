@@ -52,6 +52,7 @@ private fun messageTime(value: String?): String = runCatching {
     DateTimeFormatter.ofPattern("dd.MM · HH:mm").withZone(java.time.ZoneId.systemDefault()).format(instant)
 }.getOrDefault("")
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun RoomMessageCard(
     message: PubChatApi.ChatMessage, own: Boolean,
