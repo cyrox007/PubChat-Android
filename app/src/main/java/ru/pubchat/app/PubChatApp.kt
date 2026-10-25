@@ -2351,7 +2351,9 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                     modifier = Modifier.size(24.dp))
             }
             Box(Modifier.weight(1f)) {
-                Composer(draft, onDraft, connection == "connected" && !sending && !voiceRecording, onSend, padded = false)
+                Composer(draft, onDraft, connection == "connected" && !sending && !voiceRecording,
+                    onSend, padded = false,
+                    onVoiceTap = if (reply == null && voiceDraft.value == null) ::recordVoice else null)
             }
         }
     }
@@ -2797,7 +2799,11 @@ private fun MessageCard(message: PubChatApi.ChatMessage, own: Boolean, onClick: 
 }
 
 @Composable
-private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean, onSend: () -> Unit, padded: Boolean = true) {
+private fun Composer(
+    draft: String, onDraft: (String) -> Unit, enabled: Boolean,
+    onSend: () -> Unit, padded: Boolean = true, onVoiceTap: (() -> Unit)? = null,
+) {
+    val voiceMode = onVoiceTap != null && draft.isBlank()
     Row(Modifier.fillMaxWidth().then(if (padded) Modifier.padding(horizontal = 8.dp, vertical = 8.dp) else Modifier),
         verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         BasicTextField(
@@ -2819,9 +2825,23 @@ private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean,
             maxLines = 5,
             enabled = enabled,
         )
-        IconButton(onClick = onSend, enabled = enabled && draft.isNotBlank(), modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
-            .background(if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-            .semantics { contentDescription = "Отправить сообщение" }) { Icon(painterResource(R.drawable.ic_send), contentDescription = null, modifier = Modifier.size(22.dp), tint = if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant) }
+        IconButton(
+            onClick = { if (voiceMode) onVoiceTap?.invoke() else onSend() },
+            enabled = enabled && (voiceMode || draft.isNotBlank()),
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
+                .background(if (enabled && (voiceMode || draft.isNotBlank())) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.surfaceVariant)
+                .semantics {
+                    contentDescription = if (voiceMode) "Записать голосовое сообщение" else "Отправить сообщение"
+                },
+        ) {
+            Icon(
+                painterResource(if (voiceMode) R.drawable.ic_voice_note else R.drawable.ic_send),
+                contentDescription = null, modifier = Modifier.size(22.dp),
+                tint = if (enabled && (voiceMode || draft.isNotBlank())) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
