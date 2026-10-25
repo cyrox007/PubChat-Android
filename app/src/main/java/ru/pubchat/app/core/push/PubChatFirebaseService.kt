@@ -26,6 +26,10 @@ class PubChatFirebaseService : FirebaseMessagingService() {
         ) return
         val incomingCall = message.data["type"] == "call"
         val spaceReply = message.data["type"] == "space_reply"
+        // The user can already read this exact room on screen. Preserve the
+        // durable inbox record, but do not duplicate it as an OS notification.
+        // Replies to other rooms still notify while the app is foregrounded.
+        if (spaceReply && AppVisibleSpace.isViewing(message.data["room_uid"])) return
         PubChatNotificationChannels.install(this)
         val channel = when {
             incomingCall -> PubChatNotificationChannels.CALL
