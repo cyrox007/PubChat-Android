@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,30 +62,30 @@ internal fun RoomMessageCard(
     onSaveAttachment: ((PubChatApi.Attachment, Uri, (String?) -> Unit) -> Unit)? = null,
     onPreviewAttachment: ((PubChatApi.Attachment, (File?, String?) -> Unit) -> Unit)? = null,
 ) {
-    // The bubble owns only content and metadata; a 48dp touch target for reply
-    // sits *beside* it instead of stretching every short message to 100+dp.
-    @Composable
-    fun ReplyAction() {
-        if (onReply != null) {
-            IconButton(
-                onClick = onReply,
-                modifier = Modifier.size(48.dp).semantics {
-                    contentDescription = "Ответить на сообщение"
-                },
-            ) {
-                Text("↩", fontSize = 20.sp, color = MaterialTheme.colorScheme.primary)
-            }
-        }
-    }
+    // Do not litter the conversation with large floating reply arrows.
+    // Tap a Space bubble for contextual actions or long-press to reply;
+    // TalkBack exposes the same labelled actions.
+    var replyMenuOpen by remember(message.uid) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (own) Arrangement.End else Arrangement.Start,
     ) {
-        if (own) ReplyAction()
-        Surface(
+        Box {
+            Surface(
             modifier = Modifier.widthIn(max = 310.dp)
-                .let { if (onSelect != null) it.clickable(onClick = onSelect) else it },
+                .let { original ->
+                    when {
+                        onSelect != null -> original.clickable(onClick = onSelect)
+                        onReply != null -> original.combinedClickable(
+                            onClickLabel = "Действия с сообщением",
+                            onLongClickLabel = "Ответить на сообщение",
+                            onClick = { replyMenuOpen = true },
+                            onLongClick = onReply,
+                        )
+                        else -> original
+                    }
+                },
             shape = RoundedCornerShape(
                 topStart = 16.dp, topEnd = 16.dp,
                 bottomStart = if (own) 16.dp else 5.dp,
@@ -199,8 +200,19 @@ internal fun RoomMessageCard(
                     }
                 }
             }
+            }
+            if (onReply != null) {
+                DropdownMenu(
+                    expanded = replyMenuOpen,
+                    onDismissRequest = { replyMenuOpen = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Ответить") },
+                        onClick = { replyMenuOpen = false; onReply() },
+                    )
+                }
+            }
         }
-        if (!own) ReplyAction()
     }
 }
 
