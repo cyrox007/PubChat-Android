@@ -43,10 +43,12 @@ import kotlinx.coroutines.launch
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -116,6 +118,8 @@ import ru.pubchat.app.ui.components.RoomMessageCard
 import ru.pubchat.app.ui.components.CreateSpaceDialog
 import ru.pubchat.app.ui.components.SpaceInvitationsDialog
 import ru.pubchat.app.ui.theme.pubChatBackdrop
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -2048,6 +2052,7 @@ private fun PersonContent(
     )
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<PubChatApi.ChatMessage>, currentAccountUid: String, connection: String, error: String?, draft: String, onDraft: (String) -> Unit,
     reply: PubChatApi.ChatMessage?, sending: Boolean, onReply: (PubChatApi.ChatMessage) -> Unit, onCancelReply: () -> Unit,
@@ -2060,6 +2065,16 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
     val context = LocalContext.current
     val recorder = remember(space?.uid) { SpaceVoiceRecorder(context.applicationContext) }
     var voiceRecording by remember(space?.uid) { mutableStateOf(false) }
+    var showMediaMenu by remember(space?.uid) { mutableStateOf(false) }
+    var recordingSince by remember(space?.uid) { mutableStateOf(0L) }
+    var recordingSeconds by remember(space?.uid) { mutableIntStateOf(0) }
+    LaunchedEffect(voiceRecording) {
+        while (voiceRecording) {
+            recordingSeconds = ((android.os.SystemClock.elapsedRealtime() - recordingSince) / 1000L)
+                .toInt().coerceAtLeast(0)
+            kotlinx.coroutines.delay(250L)
+        }
+    }
     val voiceDraft = remember(space?.uid) { mutableStateOf<java.io.File?>(null) }
     DisposableEffect(recorder) {
         onDispose {
@@ -2073,9 +2088,25 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
     ) { granted ->
         if (granted) {
             runCatching { recorder.start() }
-                .onSuccess { voiceRecording = true }
+                .onSuccess {
+                    recordingSince = android.os.SystemClock.elapsedRealtime()
+                    recordingSeconds = 0
+                    voiceRecording = true
+                }
                 .onFailure { onVoiceError(it.message ?: "Не удалось начать запись") }
         } else onVoiceError("Для голосового сообщения нужен доступ к микрофону")
+    }
+    fun recordVoice() {
+        val permission = Manifest.permission.RECORD_AUDIO
+        if (context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+            runCatching { recorder.start() }
+                .onSuccess {
+                    recordingSince = android.os.SystemClock.elapsedRealtime()
+                    recordingSeconds = 0
+                    voiceRecording = true
+                }
+                .onFailure { onVoiceError(it.message ?: "Не удалось начать запись") }
+        } else microphonePermission.launch(permission)
     }
     var initialScroll by remember(space?.uid) { mutableStateOf(false) }
     LaunchedEffect(space?.uid, messages.lastOrNull()?.uid) {
@@ -2177,34 +2208,112 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                 },
             )
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(
-                onClick = {
-                    if (voiceRecording) {
-                        runCatching { recorder.finish() }
-                            .onSuccess { voiceRecording = false; voiceDraft.value = it }
-                            .onFailure { voiceRecording = false; onVoiceError(it.message ?: "Запись повреждена") }
-                    } else {
-                        val permission = android.Manifest.permission.RECORD_AUDIO
-                        if (context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
-                            runCatching { recorder.start() }
-                                .onSuccess { voiceRecording = true }
-                                .onFailure { onVoiceError(it.message ?: "Не удалось начать запись") }
-                        } else microphonePermission.launch(permission)
+        if (showMediaMenu) {
+            androidx.compose.material3.ModalBottomSheet(
+                onDismissRequest = { showMediaMenu = false },
+                sheetState = androidx.compose.material3.rememberModalBottomSheetState(
+                    skipPartiallyExpanded = true
+                ),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text("Добавить в сообщение",
+                        modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 10.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold)
+                    @Composable
+                    fun MediaOption(icon: Int, label: String, subtitle: String, onClick: () -> Unit) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable(onClick = onClick)
+                                .heightIn(min = 60.dp).padding(horizontal = 24.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            Box(
+                                Modifier.size(44.dp).clip(RoundedCornerShape(14.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(painterResource(icon), contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(23.dp))
+                            }
+                            Column {
+                                Text(label, style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium)
+                                Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
-                },
-                enabled = voiceRecording || (connection == "connected" && voiceDraft.value == null && !sending),
-            ) { Text(if (voiceRecording) "■ Завершить запись" else "🎙 Голосовое") }
-            if (voiceRecording) TextButton(onClick = {
-                recorder.cancel()
-                voiceRecording = false
-            }) { Text("Отмена") }
-            TextButton(
-                onClick = launchVideoCapture,
-                enabled = connection == "connected" && !voiceRecording &&
-                    voiceDraft.value == null && !sending,
-            ) { Text("🎥 Видеосообщение") }
+                    MediaOption(R.drawable.ic_attach_media, "Фото или файл", "Выбрать на устройстве") {
+                        showMediaMenu = false
+                        picker.launch("*/*")
+                    }
+                    MediaOption(R.drawable.ic_voice_note, "Голосовое сообщение", "Записать и прослушать перед отправкой") {
+                        showMediaMenu = false
+                        recordVoice()
+                    }
+                    MediaOption(R.drawable.ic_video_note, "Видеосообщение", "Записать короткое видео") {
+                        showMediaMenu = false
+                        launchVideoCapture()
+                    }
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = voiceRecording,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = .58f),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(Modifier.size(9.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.error))
+                    Column(Modifier.weight(1f)) {
+                        Text("Идёт запись", style = MaterialTheme.typography.labelMedium)
+                        Text("%02d:%02d".format(recordingSeconds / 60, recordingSeconds % 60),
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    IconButton(
+                        onClick = { recorder.cancel(); voiceRecording = false; recordingSeconds = 0 },
+                        modifier = Modifier.size(48.dp).semantics {
+                            contentDescription = "Удалить запись"
+                        },
+                    ) {
+                        Icon(painterResource(R.drawable.ic_media_delete),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error)
+                    }
+                    IconButton(
+                        onClick = {
+                            runCatching { recorder.finish() }
+                                .onSuccess { voiceRecording = false; voiceDraft.value = it }
+                                .onFailure {
+                                    voiceRecording = false
+                                    onVoiceError(it.message ?: "Запись повреждена")
+                                }
+                        },
+                        modifier = Modifier.size(48.dp).semantics {
+                            contentDescription = "Завершить запись"
+                        },
+                    ) {
+                        Icon(painterResource(R.drawable.ic_media_stop),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
         }
 
         if (reply != null) {
@@ -2230,13 +2339,21 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            IconButton(onClick = { picker.launch("*/*") },
-                enabled = connection == "connected" && reply == null && !sending,
-                modifier = Modifier.size(48.dp).semantics { contentDescription = "Прикрепить файл" }) {
-                Text("＋", fontSize = 24.sp, color = MaterialTheme.colorScheme.primary)
+            IconButton(onClick = { showMediaMenu = true },
+                enabled = connection == "connected" && reply == null && !sending &&
+                    !voiceRecording && voiceDraft.value == null,
+                modifier = Modifier.size(48.dp).semantics {
+                    contentDescription = "Добавить файл, голосовое или видеосообщение"
+                }) {
+                Icon(painterResource(R.drawable.ic_attach_media),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp))
             }
             Box(Modifier.weight(1f)) {
-                Composer(draft, onDraft, connection == "connected" && !sending, onSend, padded = false)
+                Composer(draft, onDraft, connection == "connected" && !sending && !voiceRecording,
+                    onSend, padded = false,
+                    onVoiceTap = if (reply == null && voiceDraft.value == null) ::recordVoice else null)
             }
         }
     }
@@ -2682,7 +2799,11 @@ private fun MessageCard(message: PubChatApi.ChatMessage, own: Boolean, onClick: 
 }
 
 @Composable
-private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean, onSend: () -> Unit, padded: Boolean = true) {
+private fun Composer(
+    draft: String, onDraft: (String) -> Unit, enabled: Boolean,
+    onSend: () -> Unit, padded: Boolean = true, onVoiceTap: (() -> Unit)? = null,
+) {
+    val voiceMode = onVoiceTap != null && draft.isBlank()
     Row(Modifier.fillMaxWidth().then(if (padded) Modifier.padding(horizontal = 8.dp, vertical = 8.dp) else Modifier),
         verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         BasicTextField(
@@ -2704,9 +2825,23 @@ private fun Composer(draft: String, onDraft: (String) -> Unit, enabled: Boolean,
             maxLines = 5,
             enabled = enabled,
         )
-        IconButton(onClick = onSend, enabled = enabled && draft.isNotBlank(), modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
-            .background(if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-            .semantics { contentDescription = "Отправить сообщение" }) { Icon(painterResource(R.drawable.ic_send), contentDescription = null, modifier = Modifier.size(22.dp), tint = if (enabled && draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant) }
+        IconButton(
+            onClick = { if (voiceMode) onVoiceTap?.invoke() else onSend() },
+            enabled = enabled && (voiceMode || draft.isNotBlank()),
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
+                .background(if (enabled && (voiceMode || draft.isNotBlank())) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.surfaceVariant)
+                .semantics {
+                    contentDescription = if (voiceMode) "Записать голосовое сообщение" else "Отправить сообщение"
+                },
+        ) {
+            Icon(
+                painterResource(if (voiceMode) R.drawable.ic_voice_note else R.drawable.ic_send),
+                contentDescription = null, modifier = Modifier.size(22.dp),
+                tint = if (enabled && (voiceMode || draft.isNotBlank())) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

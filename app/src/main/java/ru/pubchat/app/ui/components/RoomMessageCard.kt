@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,6 +52,7 @@ private fun messageTime(value: String?): String = runCatching {
     DateTimeFormatter.ofPattern("dd.MM · HH:mm").withZone(java.time.ZoneId.systemDefault()).format(instant)
 }.getOrDefault("")
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun RoomMessageCard(
     message: PubChatApi.ChatMessage, own: Boolean,
@@ -60,30 +63,30 @@ internal fun RoomMessageCard(
     onSaveAttachment: ((PubChatApi.Attachment, Uri, (String?) -> Unit) -> Unit)? = null,
     onPreviewAttachment: ((PubChatApi.Attachment, (File?, String?) -> Unit) -> Unit)? = null,
 ) {
-    // The bubble owns only content and metadata; a 48dp touch target for reply
-    // sits *beside* it instead of stretching every short message to 100+dp.
-    @Composable
-    fun ReplyAction() {
-        if (onReply != null) {
-            IconButton(
-                onClick = onReply,
-                modifier = Modifier.size(48.dp).semantics {
-                    contentDescription = "Ответить на сообщение"
-                },
-            ) {
-                Text("↩", fontSize = 20.sp, color = MaterialTheme.colorScheme.primary)
-            }
-        }
-    }
+    // Do not litter the conversation with large floating reply arrows.
+    // Tap a Space bubble for contextual actions or long-press to reply;
+    // TalkBack exposes the same labelled actions.
+    var replyMenuOpen by remember(message.uid) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (own) Arrangement.End else Arrangement.Start,
     ) {
-        if (own) ReplyAction()
-        Surface(
+        Box {
+            Surface(
             modifier = Modifier.widthIn(max = 310.dp)
-                .let { if (onSelect != null) it.clickable(onClick = onSelect) else it },
+                .let { original ->
+                    when {
+                        onSelect != null -> original.clickable(onClick = onSelect)
+                        onReply != null -> original.combinedClickable(
+                            onClickLabel = "Действия с сообщением",
+                            onLongClickLabel = "Ответить на сообщение",
+                            onClick = { replyMenuOpen = true },
+                            onLongClick = onReply,
+                        )
+                        else -> original
+                    }
+                },
             shape = RoundedCornerShape(
                 topStart = 16.dp, topEnd = 16.dp,
                 bottomStart = if (own) 16.dp else 5.dp,
@@ -198,8 +201,19 @@ internal fun RoomMessageCard(
                     }
                 }
             }
+            }
+            if (onReply != null) {
+                DropdownMenu(
+                    expanded = replyMenuOpen,
+                    onDismissRequest = { replyMenuOpen = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Ответить") },
+                        onClick = { replyMenuOpen = false; onReply() },
+                    )
+                }
+            }
         }
-        if (!own) ReplyAction()
     }
 }
 
@@ -303,25 +317,71 @@ private fun MessageAttachment(
             Text("Изображение недоступно", style = MaterialTheme.typography.bodySmall)
         } },
     )
-    else if (audio && authenticated && onPreviewAttachment != null) {
-        TextButton(onClick = { openPreview("audio") }) {
-            Text("▶ Прослушать " + attachment.name.take(48))
-        }
+    else if (audio) {
+        SpaceVoicePlayer(
+            attachment = attachment,
+            url = url,
+            authenticated = authenticated,
+            onPreviewAttachment = onPreviewAttachment,
+            onDownload = { createDocument.launch(fileName) },
+            canDownload = onSaveAttachment != null,
+            downloading = saving,
+        )
     }
-    else if (audio) AudioMessage(url)
-    else if (video) TextButton(onClick = { openPreview("video") }) {
-        Text("▶ ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
+    else if (video) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .6f),
+            modifier = Modifier.widthIn(min = 200.dp, max = 260.dp)
+                .heightIn(min = 66.dp).clickable(
+                    onClickLabel = "Посмотреть видеосообщение",
+                    onClick = { openPreview("video") },
+                ),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    Modifier.size(42.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(painterResource(ru.pubchat.app.R.drawable.ic_video_note),
+                        contentDescription = null, modifier = Modifier.size(23.dp),
+                        tint = MaterialTheme.colorScheme.primary)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Видеосообщение", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                    Text("Нажмите для просмотра", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(painterResource(ru.pubchat.app.R.drawable.ic_media_play),
+                    contentDescription = null, modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary)
+            }
+        }
     }
     else TextButton(onClick = { createDocument.launch(fileName) },
         enabled = onSaveAttachment != null && !saving) {
-        Text(if (saving) "Сохраняем…" else "↓ ${attachment.name}",
+        Text(if (saving) "Сохраняем…" else attachment.name.take(56),
             maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
-    if (image || audio || video) {
-        TextButton(onClick = { createDocument.launch(fileName) },
-            enabled = onSaveAttachment != null && !saving) {
-            Text(if (saving) "Сохраняем…" else "↓ Сохранить",
-                style = MaterialTheme.typography.bodySmall)
+    if (image || video) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            IconButton(
+                onClick = { createDocument.launch(fileName) },
+                enabled = onSaveAttachment != null && !saving,
+                modifier = Modifier.size(40.dp).semantics {
+                    contentDescription = if (video) "Сохранить видеосообщение" else "Сохранить изображение"
+                },
+            ) {
+                if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Icon(painterResource(ru.pubchat.app.R.drawable.ic_media_download),
+                    contentDescription = null, modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary)
+            }
         }
     }
     savedUri?.let { document ->
