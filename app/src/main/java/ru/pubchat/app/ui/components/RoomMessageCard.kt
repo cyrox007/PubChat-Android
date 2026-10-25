@@ -303,25 +303,71 @@ private fun MessageAttachment(
             Text("Изображение недоступно", style = MaterialTheme.typography.bodySmall)
         } },
     )
-    else if (audio && authenticated && onPreviewAttachment != null) {
-        TextButton(onClick = { openPreview("audio") }) {
-            Text("▶ Прослушать " + attachment.name.take(48))
-        }
+    else if (audio) {
+        SpaceVoicePlayer(
+            attachment = attachment,
+            url = url,
+            authenticated = authenticated,
+            onPreviewAttachment = onPreviewAttachment,
+            onDownload = { createDocument.launch(fileName) },
+            canDownload = onSaveAttachment != null,
+            downloading = saving,
+        )
     }
-    else if (audio) AudioMessage(url)
-    else if (video) TextButton(onClick = { openPreview("video") }) {
-        Text("▶ ${attachment.name}", maxLines = 2, overflow = TextOverflow.Ellipsis)
+    else if (video) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .6f),
+            modifier = Modifier.widthIn(min = 200.dp, max = 260.dp)
+                .heightIn(min = 66.dp).clickable(
+                    onClickLabel = "Посмотреть видеосообщение",
+                    onClick = { openPreview("video") },
+                ),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    Modifier.size(42.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(painterResource(ru.pubchat.app.R.drawable.ic_video_note),
+                        contentDescription = null, modifier = Modifier.size(23.dp),
+                        tint = MaterialTheme.colorScheme.primary)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Видеосообщение", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                    Text("Нажмите для просмотра", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(painterResource(ru.pubchat.app.R.drawable.ic_media_play),
+                    contentDescription = null, modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary)
+            }
+        }
     }
     else TextButton(onClick = { createDocument.launch(fileName) },
         enabled = onSaveAttachment != null && !saving) {
-        Text(if (saving) "Сохраняем…" else "↓ ${attachment.name}",
+        Text(if (saving) "Сохраняем…" else attachment.name.take(56),
             maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
-    if (image || audio || video) {
-        TextButton(onClick = { createDocument.launch(fileName) },
-            enabled = onSaveAttachment != null && !saving) {
-            Text(if (saving) "Сохраняем…" else "↓ Сохранить",
-                style = MaterialTheme.typography.bodySmall)
+    if (image || video) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            IconButton(
+                onClick = { createDocument.launch(fileName) },
+                enabled = onSaveAttachment != null && !saving,
+                modifier = Modifier.size(40.dp).semantics {
+                    contentDescription = if (video) "Сохранить видеосообщение" else "Сохранить изображение"
+                },
+            ) {
+                if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Icon(painterResource(ru.pubchat.app.R.drawable.ic_media_download),
+                    contentDescription = null, modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary)
+            }
         }
     }
     savedUri?.let { document ->
