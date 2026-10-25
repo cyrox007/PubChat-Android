@@ -117,9 +117,6 @@ import ru.pubchat.app.ui.components.RoomMessageCard
 import ru.pubchat.app.ui.components.CreateSpaceDialog
 import ru.pubchat.app.ui.components.SpaceInvitationsDialog
 import ru.pubchat.app.ui.theme.pubChatBackdrop
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.Crossfade
