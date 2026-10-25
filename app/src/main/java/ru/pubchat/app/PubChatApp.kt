@@ -67,6 +67,7 @@ import androidx.compose.animation.slideOutVertically
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import ru.pubchat.app.core.push.AppVisibleSpace
+import ru.pubchat.app.core.push.foregroundSpaceReplyCandidate
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -576,11 +577,11 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         val replyItems = items.filter { it.kind == "space_reply" }
         val previous = observedSpaceReplies
         if (previous != null) {
-            val fresh = replyItems.firstOrNull {
-                !it.read && it.uid !in previous &&
-                    liveSection != AppSection.NOTIFICATIONS &&
-                    !(liveSection == AppSection.SPACE && it.targetUid == liveSpaceUid)
-            }
+            val fresh = foregroundSpaceReplyCandidate(
+                items, previous, liveSpaceUid,
+                viewingRoom = liveSection == AppSection.SPACE,
+                viewingActivity = liveSection == AppSection.NOTIFICATIONS,
+            )
             if (fresh != null) activeReplyAlert = fresh
         }
         observedSpaceReplies = (previous.orEmpty().toList() + replyItems.map { it.uid })
