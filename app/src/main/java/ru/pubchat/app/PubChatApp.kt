@@ -813,6 +813,46 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         )
     }
 
+    fun sendPendingRoom(pending: RoomPendingSend) {
+        if (activeSpace?.uid != pending.roomUid || roomPending?.frontId != pending.frontId) return
+        roomPending = pending.copy(status = "sending")
+        messages = messages.map { item ->
+            if (item.frontId == pending.frontId && item.uid.startsWith("local:"))
+                item.copy(deliveryState = "sending") else item
+        }
+        fun markUncertain(reason: String?) {
+            if (roomPending?.frontId == pending.frontId) {
+                roomPending = pending.copy(status = "uncertain")
+                messages = messages.map { item ->
+                    if (item.frontId == pending.frontId && item.uid.startsWith("local:"))
+                        item.copy(deliveryState = "uncertain") else item
+                }
+                chatError = reason ?: "Нет подтверждения сервера. Проверьте историю или повторите с тем же ID."
+            }
+        }
+        if (pending.replyUid != null) {
+            roomReplySending = true
+            controller.replyRoomMessage(pending.replyUid, pending.text, pending.frontId) { saved, error ->
+                roomReplySending = false
+                if (saved != null) {
+                    if (activeSpace?.uid == pending.roomUid) messages = mergeMessage(messages, saved)
+                    if (roomPending?.frontId == pending.frontId) {
+                        if (draft == pending.text) draft = ""
+                        if (roomReply?.uid == pending.replyUid) roomReply = null
+                        roomPending = null
+                    }
+                    chatError = null
+                } else markUncertain(error)
+            }
+        } else if (!controller.sendSpaceMessage(
+                pending.text, state.accountUid, state.displayName, frontId = pending.frontId
+            )) {
+            markUncertain("Соединение ещё не готово. Повторите после восстановления.")
+        } else {
+            chatError = null
+        }
+    }
+
     fun decryptDialogMessages(peerUid: String, items: List<PubChatApi.ChatMessage>) {
         val cacheKey = state.accountUid + ":" + peerUid
         val remaining = items.filter { it.contentType == "e2ee" &&
