@@ -71,9 +71,9 @@ class SpaceRealtimeClient(
         })
     }
 
-    fun sendMessage(content: String, accountUid: String, displayName: String, replyToUid: String? = null): Boolean {
+    fun sendMessage(content: String, accountUid: String, displayName: String, replyToUid: String? = null, frontId: String = java.util.UUID.randomUUID().toString()): Boolean {
         val active = socket ?: return false
-        val payload = roomTextFrame(content, accountUid, displayName, replyToUid)
+        val payload = roomTextFrame(content, accountUid, displayName, replyToUid, frontId)
         return active.send(payload.toString())
     }
 
@@ -131,8 +131,8 @@ class SpaceRealtimeClient(
         old?.close(1000, "Client disconnect")
     }
 }
-internal fun roomTextFrame(content: String, accountUid: String, displayName: String, replyToUid: String?): JSONObject = JSONObject()
-    .put("frontId", java.util.UUID.randomUUID().toString())
+internal fun roomTextFrame(content: String, accountUid: String, displayName: String, replyToUid: String?, frontId: String = java.util.UUID.randomUUID().toString()): JSONObject = JSONObject()
+    .put("frontId", frontId)
     .put("content", content.trim())
     .put("content_type", "text")
     .put("media_metadata", JSONObject())
