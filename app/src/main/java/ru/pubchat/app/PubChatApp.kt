@@ -1417,7 +1417,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             deliveryState = "sending",
                         ))
                         sendPendingRoom(pending)
-                    }                    })
+                    }
+                )
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
                     onCall = { video ->
                         val peer = activeDialog?.partnerUid
