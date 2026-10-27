@@ -99,6 +99,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.network.mergeCanonicalMessage
+import ru.pubchat.app.core.network.messageRowKey
+import ru.pubchat.app.core.network.isSameMessage
 import ru.pubchat.app.core.network.MessengerEncryptionStatus
 import ru.pubchat.app.core.crypto.PeerDirectoryInspection
 import ru.pubchat.app.core.crypto.E2eeInboundPayload
@@ -483,6 +486,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var showRoomPanel by remember { mutableStateOf(false) }
     var roomReply by remember { mutableStateOf<PubChatApi.ChatMessage?>(null) }
     var roomReplySending by remember { mutableStateOf(false) }
+    var roomPending by remember { mutableStateOf<RoomPendingSend?>(null) }
     var messages by remember { mutableStateOf<List<PubChatApi.ChatMessage>>(emptyList()) }
     var connection by remember { mutableStateOf("idle") }
     var chatError by remember { mutableStateOf<String?>(null) }
@@ -818,9 +822,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             onStatuses = { onlineStatuses = onlineStatuses + it },
             onConnection = {
                 messengerConnection = it
-                // Transport loss leaves draft intact: delivery outcome is unknown.
+                // Preserve the same frontId for plaintext retries after an
+                // ambiguous disconnect; never silently send a fresh UUID.
                 if (it == "disconnected" || it == "restricted" || it == "reconnecting") {
-                    if (dmPending?.encrypted != true) dmPending = null
                     dmSending = false
                 }
             },
@@ -1446,9 +1450,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             }
                             val encrypted = dmEncryption?.effectiveMode ==
                                 ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE
-                            val previous = dmPending?.takeIf { it.encrypted }
-                            if (previous != null && (!encrypted || !previous.canRetryEncrypted(peer, sentText))) {
-                                messengerError = "Незавершённая E2EE-отправка: вернитесь к прежнему тексту и диалогу для безопасного повтора."
+                            val previous = dmPending
+                            if (previous != null && (previous.encrypted != encrypted || previous.peerUid != peer ||
+                                    previous.text != sentText.trim())) {
+                                messengerError = "Есть неподтверждённая отправка. Повторите тот же текст в том же диалоге, чтобы избежать дублей."
                                 return@MessengerChatContent
                             }
                             val pending = previous ?: PendingMessengerSend(
@@ -1465,8 +1470,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                                         dmSending = false
                                         messengerError = null
                                     } else if (!accepted) {
-                                        // Keep E2EE frontId for exact ciphertext retry after ambiguous HTTP failure.
-                                        if (!encrypted) dmPending = null
+                                        // Keep the frontId for E2EE and plaintext retries.
                                         dmSending = false
                                         if (activeDialog?.partnerUid == peer) {
                                             messengerError = failure ?: "Сообщение не отправлено"
@@ -2133,7 +2137,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Здесь пока тихо. Начните разговор." else "Подключаем разговор…") }
-            items(messages, key = PubChatApi.ChatMessage::uid) { message ->
+            items(messages, key = ::messageRowKey) { message ->
                 val source = messages.find { it.uid == message.replyToUid }
                 RoomMessageCard(message, message.senderUid == currentAccountUid, source,
                     onReplyJump = source?.let { { scope.launch { listState.animateScrollToItem(messages.indexOf(it)) }; Unit } },
@@ -2662,7 +2666,7 @@ private fun MessengerChatContent(
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Можно начать с простого «привет»." else "Загружаем личный разговор…") }
-            items(messages, key = PubChatApi.ChatMessage::uid) { message ->
+            items(messages, key = ::messageRowKey) { message ->
                 Column {
                     val trusted = decryptedE2ee[message.uid]
                     val safeMessage = if (message.contentType == "e2ee") message.copy(
@@ -2904,10 +2908,8 @@ private fun NotificationContent(
     }
 }
 
-private fun mergeMessage(messages: List<PubChatApi.ChatMessage>, incoming: PubChatApi.ChatMessage): List<PubChatApi.ChatMessage> {
-    val index = messages.indexOfFirst { it.uid == incoming.uid }
-    return if (index >= 0) messages.toMutableList().also { it[index] = incoming } else messages + incoming
-}
+private fun mergeMessage(messages: List<PubChatApi.ChatMessage>, incoming: PubChatApi.ChatMessage): List<PubChatApi.ChatMessage> =
+    mergeCanonicalMessage(messages, incoming)
 
 private fun connectionLabel(value: String) = when (value) {
     "connecting" -> "Подключаемся"
