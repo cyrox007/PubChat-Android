@@ -99,6 +99,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.widthIn
 import ru.pubchat.app.core.network.PubChatApi
+import ru.pubchat.app.core.network.mergeCanonicalMessage
+import ru.pubchat.app.core.network.messageRowKey
+import ru.pubchat.app.core.network.isSameMessage
 import ru.pubchat.app.core.network.MessengerEncryptionStatus
 import ru.pubchat.app.core.crypto.PeerDirectoryInspection
 import ru.pubchat.app.core.crypto.E2eeInboundPayload
@@ -483,6 +486,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     var showRoomPanel by remember { mutableStateOf(false) }
     var roomReply by remember { mutableStateOf<PubChatApi.ChatMessage?>(null) }
     var roomReplySending by remember { mutableStateOf(false) }
+    var roomPending by remember { mutableStateOf<RoomPendingSend?>(null) }
     var messages by remember { mutableStateOf<List<PubChatApi.ChatMessage>>(emptyList()) }
     var connection by remember { mutableStateOf("idle") }
     var chatError by remember { mutableStateOf<String?>(null) }
@@ -756,6 +760,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     }
 
     fun openSpace(space: PubChatApi.SpaceSummary) {
+        roomPending = null
+        roomReplySending = false
         roomReply = null
         showRoomPanel = false
         controller.closeMessenger()
@@ -767,11 +773,84 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         controller.openSpace(
             space.uid,
             onReady = { activeSpace = it },
-            onInitialMessages = { messages = it },
-            onMessage = { incoming -> messages = mergeMessage(messages, incoming) },
-            onConnection = { connection = it },
+            onInitialMessages = { history ->
+                val unsaved = messages.filter { it.uid.startsWith("local:") }
+                messages = history + unsaved.filterNot { local -> history.any { isSameMessage(it, local) } }
+                val pending = roomPending
+                if (pending != null && history.any { it.frontId == pending.frontId }) {
+                    if (draft == pending.text) draft = ""
+                    if (roomReply?.uid == pending.replyUid) roomReply = null
+                    roomPending = null
+                    roomReplySending = false
+                }
+            },
+            onMessage = { incoming ->
+                messages = mergeMessage(messages, incoming)
+                val pending = roomPending
+                if (pending != null && incoming.frontId == pending.frontId &&
+                    activeSpace?.uid == pending.roomUid && !incoming.uid.startsWith("local:")) {
+                    if (draft == pending.text) draft = ""
+                    if (roomReply?.uid == pending.replyUid) roomReply = null
+                    roomPending = null
+                    roomReplySending = false
+                    chatError = null
+                }
+            },
+            onConnection = {
+                connection = it
+                if (it == "disconnected" || it == "reconnecting") {
+                    roomPending?.let { pending ->
+                        roomPending = pending.copy(status = "uncertain")
+                        messages = messages.map { message ->
+                            if (message.frontId == pending.frontId && message.uid.startsWith("local:"))
+                                message.copy(deliveryState = "uncertain")
+                            else message
+                        }
+                    }
+                }
+            },
             onError = { chatError = it },
         )
+    }
+
+    fun sendPendingRoom(pending: RoomPendingSend) {
+        if (activeSpace?.uid != pending.roomUid || roomPending?.frontId != pending.frontId) return
+        roomPending = pending.copy(status = "sending")
+        messages = messages.map { item ->
+            if (item.frontId == pending.frontId && item.uid.startsWith("local:"))
+                item.copy(deliveryState = "sending") else item
+        }
+        fun markUncertain(reason: String?) {
+            if (roomPending?.frontId == pending.frontId) {
+                roomPending = pending.copy(status = "uncertain")
+                messages = messages.map { item ->
+                    if (item.frontId == pending.frontId && item.uid.startsWith("local:"))
+                        item.copy(deliveryState = "uncertain") else item
+                }
+                chatError = reason ?: "Нет подтверждения сервера. Проверьте историю или повторите с тем же ID."
+            }
+        }
+        if (pending.replyUid != null) {
+            roomReplySending = true
+            controller.replyRoomMessage(pending.replyUid, pending.text, pending.frontId) { saved, error ->
+                roomReplySending = false
+                if (saved != null) {
+                    if (activeSpace?.uid == pending.roomUid) messages = mergeMessage(messages, saved)
+                    if (roomPending?.frontId == pending.frontId) {
+                        if (draft == pending.text) draft = ""
+                        if (roomReply?.uid == pending.replyUid) roomReply = null
+                        roomPending = null
+                    }
+                    chatError = null
+                } else markUncertain(error)
+            }
+        } else if (!controller.sendSpaceMessage(
+                pending.text, state.accountUid, state.displayName, frontId = pending.frontId
+            )) {
+            markUncertain("Соединение ещё не готово. Повторите после восстановления.")
+        } else {
+            chatError = null
+        }
     }
 
     fun decryptDialogMessages(peerUid: String, items: List<PubChatApi.ChatMessage>) {
@@ -818,9 +897,9 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
             onStatuses = { onlineStatuses = onlineStatuses + it },
             onConnection = {
                 messengerConnection = it
-                // Transport loss leaves draft intact: delivery outcome is unknown.
+                // Preserve the same frontId for plaintext retries after an
+                // ambiguous disconnect; never silently send a fresh UUID.
                 if (it == "disconnected" || it == "restricted" || it == "reconnecting") {
-                    if (dmPending?.encrypted != true) dmPending = null
                     dmSending = false
                 }
             },
@@ -1308,7 +1387,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     },
                 )
                 AppSection.SPACE -> SpaceChatContent(activeSpace, messages, state.accountUid, connection, chatError, draft, { draft = it },
-                    reply = roomReply, sending = roomReplySending,
+                    reply = roomReply, sending = roomPending?.status == "sending" || roomReplySending,
                     onReply = { roomReply = it }, onCancelReply = { roomReply = null },
                     onAttach = { uri -> controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error } },
                     onVoiceNote = { file -> controller.sendSpaceVoiceNote(file, state.accountUid, state.displayName) { error -> chatError = error } },
@@ -1319,32 +1398,27 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onPreviewAttachment = { attachment, done ->
                         controller.previewAttachment(attachment, done)
                     },
+                    onRetryPending = { roomPending?.takeIf { it.status == "uncertain" }?.let(::sendPendingRoom) },
                     onSend = send@{
-                        if (roomReplySending || draft.isBlank()) return@send
-                        val source = roomReply
-                        if (source != null) {
-                            val submitted = draft
-                            val spaceUid = activeSpace?.uid
-                            roomReplySending = true
-                            controller.replyRoomMessage(source.uid, submitted) { saved, error ->
-                                roomReplySending = false
-                                if (error != null || saved == null) {
-                                    chatError = error ?: "Сервер не подтвердил ответ"
-                                } else {
-                                    if (spaceUid == activeSpace?.uid) {
-                                        messages = mergeMessage(messages, saved)
-                                        if (draft == submitted && roomReply?.uid == source.uid) {
-                                            draft = ""
-                                            roomReply = null
-                                        }
-                                    }
-                                    chatError = null
-                                }
-                            }
-                        } else if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) {
-                            draft = ""; chatError = null
-                        } else chatError = "Соединение ещё не готово"
-                    })
+                        if (draft.isBlank() || roomPending != null) return@send
+                        val spaceUid = activeSpace?.uid ?: return@send
+                        val frontId = java.util.UUID.randomUUID().toString()
+                        val pending = RoomPendingSend(
+                            frontId = frontId, roomUid = spaceUid,
+                            text = draft.trim(), replyUid = roomReply?.uid,
+                        )
+                        roomPending = pending
+                        messages = mergeMessage(messages, PubChatApi.ChatMessage(
+                            uid = "local:$frontId", frontId = frontId, content = pending.text,
+                            senderUid = state.accountUid, senderName = state.displayName,
+                            createdAt = java.time.Instant.now().toString(), contentType = "text",
+                            replyToUid = pending.replyUid, replyContent = roomReply?.content,
+                            replySenderName = roomReply?.senderName,
+                            deliveryState = "sending",
+                        ))
+                        sendPendingRoom(pending)
+                    }
+                )
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
                     onCall = { video ->
                         val peer = activeDialog?.partnerUid
@@ -1446,9 +1520,10 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                             }
                             val encrypted = dmEncryption?.effectiveMode ==
                                 ru.pubchat.app.core.network.ConversationEffectiveMode.E2EE
-                            val previous = dmPending?.takeIf { it.encrypted }
-                            if (previous != null && (!encrypted || !previous.canRetryEncrypted(peer, sentText))) {
-                                messengerError = "Незавершённая E2EE-отправка: вернитесь к прежнему тексту и диалогу для безопасного повтора."
+                            val previous = dmPending
+                            if (previous != null && (previous.encrypted != encrypted || previous.peerUid != peer ||
+                                    previous.text != sentText.trim())) {
+                                messengerError = "Есть неподтверждённая отправка. Повторите тот же текст в том же диалоге, чтобы избежать дублей."
                                 return@MessengerChatContent
                             }
                             val pending = previous ?: PendingMessengerSend(
@@ -1465,8 +1540,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                                         dmSending = false
                                         messengerError = null
                                     } else if (!accepted) {
-                                        // Keep E2EE frontId for exact ciphertext retry after ambiguous HTTP failure.
-                                        if (!encrypted) dmPending = null
+                                        // Keep the frontId for E2EE and plaintext retries.
                                         dmSending = false
                                         if (activeDialog?.partnerUid == peer) {
                                             messengerError = failure ?: "Сообщение не отправлено"
@@ -2059,7 +2133,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
     onAttach: (android.net.Uri) -> Unit, onVoiceNote: (java.io.File) -> Unit,
     onSaveAttachment: (PubChatApi.Attachment, android.net.Uri, (String?) -> Unit) -> Unit,
     onPreviewAttachment: (PubChatApi.Attachment, (java.io.File?, String?) -> Unit) -> Unit,
-    onVoiceError: (String) -> Unit, onSend: () -> Unit) {
+    onVoiceError: (String) -> Unit, onRetryPending: () -> Unit, onSend: () -> Unit) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -2133,11 +2207,11 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Здесь пока тихо. Начните разговор." else "Подключаем разговор…") }
-            items(messages, key = PubChatApi.ChatMessage::uid) { message ->
+            items(messages, key = ::messageRowKey) { message ->
                 val source = messages.find { it.uid == message.replyToUid }
                 RoomMessageCard(message, message.senderUid == currentAccountUid, source,
                     onReplyJump = source?.let { { scope.launch { listState.animateScrollToItem(messages.indexOf(it)) }; Unit } },
-                    onReply = if (message.contentType != "deleted") { { onReply(message) } } else null,
+                    onReply = if (message.contentType != "deleted" && !message.uid.startsWith("local:")) { { onReply(message) } } else null,
                     onSaveAttachment = onSaveAttachment,
                     onPreviewAttachment = onPreviewAttachment)
             }
@@ -2331,6 +2405,12 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                 }
                 TextButton(onClick = onCancelReply, enabled = !sending,
                     modifier = Modifier.heightIn(min = 48.dp)) { Text("Отмена") }
+            }
+        }
+        if (messages.any { it.uid.startsWith("local:") && it.deliveryState == "uncertain" }) {
+            TextButton(onClick = onRetryPending, enabled = connection == "connected",
+                modifier = Modifier.fillMaxWidth()) {
+                Text("Нет подтверждения отправки · Повторить")
             }
         }
         Row(
@@ -2662,7 +2742,7 @@ private fun MessengerChatContent(
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (messages.isEmpty()) item { Text(if (connection == "connected") "Можно начать с простого «привет»." else "Загружаем личный разговор…") }
-            items(messages, key = PubChatApi.ChatMessage::uid) { message ->
+            items(messages, key = ::messageRowKey) { message ->
                 Column {
                     val trusted = decryptedE2ee[message.uid]
                     val safeMessage = if (message.contentType == "e2ee") message.copy(
@@ -2904,10 +2984,16 @@ private fun NotificationContent(
     }
 }
 
-private fun mergeMessage(messages: List<PubChatApi.ChatMessage>, incoming: PubChatApi.ChatMessage): List<PubChatApi.ChatMessage> {
-    val index = messages.indexOfFirst { it.uid == incoming.uid }
-    return if (index >= 0) messages.toMutableList().also { it[index] = incoming } else messages + incoming
-}
+private data class RoomPendingSend(
+    val frontId: String,
+    val roomUid: String,
+    val text: String,
+    val replyUid: String?,
+    val status: String = "sending",
+)
+
+private fun mergeMessage(messages: List<PubChatApi.ChatMessage>, incoming: PubChatApi.ChatMessage): List<PubChatApi.ChatMessage> =
+    mergeCanonicalMessage(messages, incoming)
 
 private fun connectionLabel(value: String) = when (value) {
     "connecting" -> "Подключаемся"

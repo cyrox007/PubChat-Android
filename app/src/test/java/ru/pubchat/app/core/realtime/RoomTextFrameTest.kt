@@ -12,6 +12,11 @@ class RoomTextFrameTest {
         assertEquals("account", frame.getJSONObject("sender").getString("uid"))
         assertTrue(frame.getString("frontId").isNotBlank())
     }
+    @Test fun retryKeepsTheOriginalClientMessageId() {
+        val id = "sample-stable-client-id"
+        assertEquals(id, roomTextFrame("hello", "account", "Name", null, id).getString("frontId"))
+        assertEquals(id, roomTextFrame("hello", "account", "Name", null, id).getString("frontId"))
+    }
     @Test fun ordinaryMessagesDoNotCarryAReplyReference() {
         assertFalse(roomTextFrame("test", "account", "Name", null).has("reply_to_uid"))
         assertFalse(roomTextFrame("test", "account", "Name", " ").has("reply_to_uid"))

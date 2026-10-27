@@ -141,6 +141,8 @@ class PubChatApi(
         val replyContent: String? = null,
         val replySenderName: String? = null,
         val attachments: List<Attachment> = emptyList(),
+        val frontId: String? = null,
+        val deliveryState: String? = null,
     )
 
     data class Attachment(val url: String, val name: String, val mimeType: String?)
@@ -343,9 +345,11 @@ class PubChatApi(
         request("POST", "/moderation/v1/spaces/$uid/actions", body)
     }
 
-    fun replySpaceMessage(messageUid: String, content: String): ChatMessage {
+    fun replySpaceMessage(messageUid: String, content: String, frontId: String? = null): ChatMessage {
         val response = JSONObject(request("POST", "/messages/v2/room/$messageUid/reply",
-            JSONObject().put("content", content.trim())).body)
+            JSONObject().put("content", content.trim()).apply {
+                frontId?.let { put("frontId", it) }
+            }).body)
         val saved = response.optJSONObject("message")
             ?: error("Сервер не подтвердил ответ в комнате")
         return parseChatMessage(saved)

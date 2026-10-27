@@ -25,7 +25,8 @@ internal fun parseChatMessage(json: JSONObject): PubChatApi.ChatMessage? {
         listOf(PubChatApi.Attachment(content, when(type) { "audio", "voice" -> "Голосовое сообщение"; "image" -> "Изображение"; "video" -> "Видео"; else -> "Вложение" }, null))
     } else attachments
     return PubChatApi.ChatMessage(
-        uid = uid, content = content, contentType = type,
+        uid = uid, frontId = json.text("frontId"),
+        content = content, contentType = type,
         senderUid = sender?.text("uid") ?: json.text("sender_uid"),
         senderName = sender?.text("display_name") ?: sender?.text("name") ?: sender?.text("username"),
         senderAvatar = sender?.text("avatar"), createdAt = json.text("created_at"),
