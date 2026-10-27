@@ -1387,7 +1387,7 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     },
                 )
                 AppSection.SPACE -> SpaceChatContent(activeSpace, messages, state.accountUid, connection, chatError, draft, { draft = it },
-                    reply = roomReply, sending = roomReplySending,
+                    reply = roomReply, sending = roomPending?.status == "sending" || roomReplySending,
                     onReply = { roomReply = it }, onCancelReply = { roomReply = null },
                     onAttach = { uri -> controller.sendSpaceAttachment(uri, state.accountUid, state.displayName) { error -> chatError = error } },
                     onVoiceNote = { file -> controller.sendSpaceVoiceNote(file, state.accountUid, state.displayName) { error -> chatError = error } },
@@ -1398,32 +1398,26 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
                     onPreviewAttachment = { attachment, done ->
                         controller.previewAttachment(attachment, done)
                     },
+                    onRetryPending = { roomPending?.takeIf { it.status == "uncertain" }?.let(::sendPendingRoom) },
                     onSend = send@{
-                        if (roomReplySending || draft.isBlank()) return@send
-                        val source = roomReply
-                        if (source != null) {
-                            val submitted = draft
-                            val spaceUid = activeSpace?.uid
-                            roomReplySending = true
-                            controller.replyRoomMessage(source.uid, submitted) { saved, error ->
-                                roomReplySending = false
-                                if (error != null || saved == null) {
-                                    chatError = error ?: "Сервер не подтвердил ответ"
-                                } else {
-                                    if (spaceUid == activeSpace?.uid) {
-                                        messages = mergeMessage(messages, saved)
-                                        if (draft == submitted && roomReply?.uid == source.uid) {
-                                            draft = ""
-                                            roomReply = null
-                                        }
-                                    }
-                                    chatError = null
-                                }
-                            }
-                        } else if (controller.sendSpaceMessage(draft, state.accountUid, state.displayName)) {
-                            draft = ""; chatError = null
-                        } else chatError = "Соединение ещё не готово"
-                    })
+                        if (draft.isBlank() || roomPending != null) return@send
+                        val spaceUid = activeSpace?.uid ?: return@send
+                        val frontId = java.util.UUID.randomUUID().toString()
+                        val pending = RoomPendingSend(
+                            frontId = frontId, roomUid = spaceUid,
+                            text = draft.trim(), replyUid = roomReply?.uid,
+                        )
+                        roomPending = pending
+                        messages = mergeMessage(messages, PubChatApi.ChatMessage(
+                            uid = "local:$frontId", frontId = frontId, content = pending.text,
+                            senderUid = state.accountUid, senderName = state.displayName,
+                            createdAt = java.time.Instant.now().toString(), contentType = "text",
+                            replyToUid = pending.replyUid, replyContent = roomReply?.content,
+                            replySenderName = roomReply?.senderName,
+                            deliveryState = "sending",
+                        ))
+                        sendPendingRoom(pending)
+                    }                    })
                 AppSection.MESSENGER_CHAT -> MessengerChatContent(
                     onCall = { video ->
                         val peer = activeDialog?.partnerUid
