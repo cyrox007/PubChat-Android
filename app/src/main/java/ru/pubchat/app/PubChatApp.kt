@@ -2132,7 +2132,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
     onAttach: (android.net.Uri) -> Unit, onVoiceNote: (java.io.File) -> Unit,
     onSaveAttachment: (PubChatApi.Attachment, android.net.Uri, (String?) -> Unit) -> Unit,
     onPreviewAttachment: (PubChatApi.Attachment, (java.io.File?, String?) -> Unit) -> Unit,
-    onVoiceError: (String) -> Unit, onSend: () -> Unit) {
+    onVoiceError: (String) -> Unit, onRetryPending: () -> Unit, onSend: () -> Unit) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -2210,7 +2210,7 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                 val source = messages.find { it.uid == message.replyToUid }
                 RoomMessageCard(message, message.senderUid == currentAccountUid, source,
                     onReplyJump = source?.let { { scope.launch { listState.animateScrollToItem(messages.indexOf(it)) }; Unit } },
-                    onReply = if (message.contentType != "deleted") { { onReply(message) } } else null,
+                    onReply = if (message.contentType != "deleted" && !message.uid.startsWith("local:")) { { onReply(message) } } else null,
                     onSaveAttachment = onSaveAttachment,
                     onPreviewAttachment = onPreviewAttachment)
             }
@@ -2404,6 +2404,12 @@ private fun SpaceChatContent(space: PubChatApi.SpaceSummary?, messages: List<Pub
                 }
                 TextButton(onClick = onCancelReply, enabled = !sending,
                     modifier = Modifier.heightIn(min = 48.dp)) { Text("Отмена") }
+            }
+        }
+        if (messages.any { it.uid.startsWith("local:") && it.deliveryState == "uncertain" }) {
+            TextButton(onClick = onRetryPending, enabled = connection == "connected",
+                modifier = Modifier.fillMaxWidth()) {
+                Text("Нет подтверждения отправки · Повторить")
             }
         }
         Row(
