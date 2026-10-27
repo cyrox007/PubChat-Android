@@ -685,7 +685,7 @@ class AppController(context: Context) {
                                 "message_read" -> frame.optString("message_uid").takeIf { it.isNotBlank() }?.let(target.onRead)
                                 "status_update" -> target.onStatuses(parseStatuses(frame.optJSONObject("statuses")))
                                 "rate_limited" -> target.onError("Слишком много сообщений подряд")
-                                "duplicate_ignored" -> frame.optString("frontId").takeIf { it.isNotBlank() }?.let {
+                                "duplicate_ignored", "duplicate_pending" -> frame.optString("frontId").takeIf { it.isNotBlank() }?.let {
                                     target.onSendFailed(it, "Повтор обнаружен сервером. Проверьте историю перед повторной отправкой.")
                                 }
                                 "error" -> {
@@ -1238,21 +1238,21 @@ class AppController(context: Context) {
         }
     }
 
-    fun replyRoomMessage(messageUid: String, content: String, onDone: (PubChatApi.ChatMessage?, String?) -> Unit) {
+    fun replyRoomMessage(messageUid: String, content: String, frontId: String = java.util.UUID.randomUUID().toString(), onDone: (PubChatApi.ChatMessage?, String?) -> Unit) {
         if (content.isBlank()) {
             onDone(null, "Введите текст ответа")
             return
         }
         executor.execute {
-            runCatching { authenticated { api.replySpaceMessage(messageUid, content) } }
+            runCatching { authenticated { api.replySpaceMessage(messageUid, content, frontId) } }
                 .onSuccess { saved -> main.post { onDone(saved, null) } }
                 .onFailure { error -> main.post { onDone(null, humanMessage(error)) } }
         }
     }
 
-    fun sendSpaceMessage(content: String, accountUid: String, displayName: String, replyToUid: String? = null): Boolean {
+    fun sendSpaceMessage(content: String, accountUid: String, displayName: String, replyToUid: String? = null, frontId: String = java.util.UUID.randomUUID().toString()): Boolean {
         if (content.isBlank()) return false
-        return realtime?.sendMessage(content, accountUid, displayName, replyToUid) == true
+        return realtime?.sendMessage(content, accountUid, displayName, replyToUid, frontId) == true
     }
 
     fun saveProfile(current: AppState.SignedIn, name: String, bio: String, city: String, country: String, intent: String, onDone: (AppState.SignedIn?, String?) -> Unit) {
