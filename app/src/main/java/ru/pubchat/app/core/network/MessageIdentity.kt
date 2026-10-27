@@ -4,7 +4,10 @@ package ru.pubchat.app.core.network
 internal fun messageRowKey(message: PubChatApi.ChatMessage): String = message.frontId ?: message.uid
 
 internal fun isSameMessage(a: PubChatApi.ChatMessage, b: PubChatApi.ChatMessage): Boolean {
-    if (!a.uid.startsWith("local:") && !b.uid.startsWith("local:") && a.uid == b.uid) return true
+    if (!a.uid.startsWith("local:") && !b.uid.startsWith("local:")) {
+        // Canonical PostgreSQL rows with different UIDs cannot be the same message.
+        return a.uid == b.uid
+    }
     val sameFrontId = !a.frontId.isNullOrBlank() && a.frontId == b.frontId
     val sameSender = a.senderUid == null || b.senderUid == null || a.senderUid == b.senderUid
     return sameFrontId && sameSender
