@@ -760,6 +760,8 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
     }
 
     fun openSpace(space: PubChatApi.SpaceSummary) {
+        roomPending = null
+        roomReplySending = false
         roomReply = null
         showRoomPanel = false
         controller.closeMessenger()
@@ -771,9 +773,42 @@ private fun AuthenticatedShell(state: AppState.SignedIn, controller: AppControll
         controller.openSpace(
             space.uid,
             onReady = { activeSpace = it },
-            onInitialMessages = { messages = it },
-            onMessage = { incoming -> messages = mergeMessage(messages, incoming) },
-            onConnection = { connection = it },
+            onInitialMessages = { history ->
+                val unsaved = messages.filter { it.uid.startsWith("local:") }
+                messages = history + unsaved.filterNot { local -> history.any { isSameMessage(it, local) } }
+                val pending = roomPending
+                if (pending != null && history.any { it.frontId == pending.frontId }) {
+                    if (draft == pending.text) draft = ""
+                    if (roomReply?.uid == pending.replyUid) roomReply = null
+                    roomPending = null
+                    roomReplySending = false
+                }
+            },
+            onMessage = { incoming ->
+                messages = mergeMessage(messages, incoming)
+                val pending = roomPending
+                if (pending != null && incoming.frontId == pending.frontId &&
+                    activeSpace?.uid == pending.roomUid && !incoming.uid.startsWith("local:")) {
+                    if (draft == pending.text) draft = ""
+                    if (roomReply?.uid == pending.replyUid) roomReply = null
+                    roomPending = null
+                    roomReplySending = false
+                    chatError = null
+                }
+            },
+            onConnection = {
+                connection = it
+                if (it == "disconnected" || it == "reconnecting") {
+                    roomPending?.let { pending ->
+                        roomPending = pending.copy(status = "uncertain")
+                        messages = messages.map { message ->
+                            if (message.frontId == pending.frontId && message.uid.startsWith("local:"))
+                                message.copy(deliveryState = "uncertain")
+                            else message
+                        }
+                    }
+                }
+            },
             onError = { chatError = it },
         )
     }
@@ -2907,6 +2942,14 @@ private fun NotificationContent(
         }
     }
 }
+
+private data class RoomPendingSend(
+    val frontId: String,
+    val roomUid: String,
+    val text: String,
+    val replyUid: String?,
+    val status: String = "sending",
+)
 
 private fun mergeMessage(messages: List<PubChatApi.ChatMessage>, incoming: PubChatApi.ChatMessage): List<PubChatApi.ChatMessage> =
     mergeCanonicalMessage(messages, incoming)
